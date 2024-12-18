@@ -4,7 +4,10 @@ defmodule Coinflips.Games do
   alias Coinflips.Games.Game
 
   def list_games do
-    Repo.all(Game)
+    Game
+    |> where([g], g.result in [nil, "pending"])
+    |> order_by([g], desc: g.inserted_at)
+    |> Repo.all()
   end
 
   def get_game!(id) do
