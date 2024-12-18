@@ -109,10 +109,7 @@ defmodule CoinflipsWeb.Live.Index do
   end
 
   def handle_event("join_game", %{"id" => id, "balance" => balance}, socket) do
-    %{bet_amount: bet_amount} = game = Coinflips.Games.get_game!(id)
-
-    IO.inspect(game, label: "game")
-    IO.inspect(balance |> Decimal.new(), label: "balance")
+    %{bet_amount: bet_amount} = _game = Coinflips.Games.get_game!(id)
 
     join_params = %{
       toAddress: app_wallet_address(),
@@ -131,7 +128,7 @@ defmodule CoinflipsWeb.Live.Index do
     end
   end
 
-  def handle_event("flip_coin", %{"id" => id, "wallet" => wallet}, socket) do
+  def handle_event("flip_coin", %{"id" => id}, socket) do
     # Fetch the game from the database
     game = Coinflips.Games.get_game!(id)
 
@@ -149,7 +146,7 @@ defmodule CoinflipsWeb.Live.Index do
       # Update the game status and winner in the database
       updated_attrs = %{
         status: "🏆 #{winner_wallet} wins!",
-        flip_result: flip_result,
+        result: flip_result,
         winner_wallet: winner_wallet
       }
 
@@ -167,7 +164,13 @@ defmodule CoinflipsWeb.Live.Index do
 
   def handle_event(
         "eth_deposit_success",
-        %{"txHash" => tx_hash, "game_id" => game_id, "bet_amount" => bet_amount, "role" => role},
+        %{
+          "bet_amount" => bet_amount,
+          "game_id" => game_id,
+          "role" => role,
+          "txHash" => tx_hash,
+          "wallet_address" => wallet_address
+        },
         socket
       ) do
     # Find the game by ID from the database
@@ -180,14 +183,17 @@ defmodule CoinflipsWeb.Live.Index do
             %{
               creator_deposit_confirmed: true,
               creator_tx_hash: tx_hash,
-              status: status_by_challenger_deposit(game)
+              status: status_by_challenger_deposit(game, :creator),
+              result: "pending"
             }
 
           "challenger" ->
             %{
+              challenger_wallet: wallet_address,
               challenger_deposit_confirmed: true,
               challenger_tx_hash: tx_hash,
-              status: status_by_challenger_deposit(game)
+              status: status_by_challenger_deposit(game, :challenger),
+              result: "pending"
             }
         end
 
@@ -233,7 +239,8 @@ defmodule CoinflipsWeb.Live.Index do
       end
 
     Coinflips.Games.update_game(Coinflips.Games.get_game!(game_id), %{
-      status: "❌ Game failed "
+      status: "❌ Game failed ",
+      result: "failed"
     })
 
     {:noreply, add_tip(socket, message)}
@@ -349,11 +356,31 @@ defmodule CoinflipsWeb.Live.Index do
             :if={game.creator_deposit_confirmed}
             class="min-w-[250px] bg-gray-700 p-4 rounded-lg shadow-lg hover:scale-105 transition"
           >
+            <!-- Game Identifier -->
+            <p class="text-gray-500 text-xs">🆔 Game ID: {game.id}</p>
+            
+    <!-- Creation Date -->
+            <p class="text-gray-500 text-xs">
+              🕒 Created At: {Timex.format!(game.inserted_at, "{0D}-{0M}-{YYYY} {h24}:{m}:{s}")} UTC
+            </p>
+            
+    <!-- Player Wallet -->
             <p class="text-neon-green font-bold truncate">🎭 Player: {game.player_wallet}</p>
+            
+    <!-- Challenger Wallet (if available) -->
+            <p :if={not is_nil(game.challenger_wallet)} class="text-neon-yellow font-bold truncate">
+              🥊 Challenger: {game.challenger_wallet}
+            </p>
+            
+    <!-- Bet Amount -->
             <p class="text-neon-blue font-bold">💰 Bet: {game.bet_amount} ETH</p>
+            
+    <!-- Game Status -->
             <p class="text-gray-400 text-sm">{game.status}</p>
+            
+    <!-- Join Game Button -->
             <button
-              :if={game.status == "🎯 Waiting for challenger" and @wallet_connected}
+              :if={game.result == "pending" && (game.challenger_wallet == nil && @wallet_connected)}
               phx-click="join_game"
               phx-value-id={game.id}
               phx-value-balance={@wallet_balance}
@@ -361,16 +388,17 @@ defmodule CoinflipsWeb.Live.Index do
             >
               ⚔️ Join Game
             </button>
-            <!-- Flip Coin -->
+            
+    <!-- Flip Coin Button -->
             <button
               :if={
-                @wallet_connected &&
-                  game.status == "⚔️ Ready to Flip" &&
-                  @wallet_address in [game.player_wallet, game.challenger_wallet]
+                game.result == "pending" &&
+                  (game.creator_deposit_confirmed &&
+                     game.challenger_deposit_confirmed &&
+                     @wallet_address in [game.player_wallet, game.challenger_wallet])
               }
               phx-click="flip_coin"
               phx-value-id={game.id}
-              phx-value-wallet={@wallet_address}
               class="w-full mt-3 p-2 rounded-lg bg-neon-blue hover:bg-neon-green text-black font-bold transition"
             >
               🎲 Flip Coin
@@ -390,8 +418,8 @@ defmodule CoinflipsWeb.Live.Index do
     """
   end
 
-  defp status_by_challenger_deposit(%{challenger_deposit_confirmed: true} = _game),
+  defp status_by_challenger_deposit(%{creator_deposit_confirmed: true}, :challenger),
     do: "⚔️ Ready to Flip"
 
-  defp status_by_challenger_deposit(_game), do: "🎯 Waiting for challenger"
+  defp status_by_challenger_deposit(_, :creator), do: "🎯 Waiting for challenger"
 end

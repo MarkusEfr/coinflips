@@ -50,6 +50,7 @@ Hooks.GameActions = {
       try {
         const provider = new ethers.BrowserProvider(window.ethereum);
         const signer = await provider.getSigner();
+        const user_wallet_address = await signer.getAddress()
 
         const tx = await signer.sendTransaction({
           to: toAddress,
@@ -60,18 +61,17 @@ Hooks.GameActions = {
 
         // Notify the server of the deposit success
         this.pushEvent("eth_deposit_success", {
-          success: true,
           txHash: tx.hash,
-          game_id,
+          game_id: game_id,
           bet_amount: amountInEth,
-          role,
+          role: role,
+          wallet_address: user_wallet_address
         });
       } catch (error) {
         console.error("Error depositing ETH:", error);
 
         // Notify the server of the deposit failure
         this.pushEvent("eth_deposit_failure", {
-          success: false,
           error: error,
           game_id,
           role,
