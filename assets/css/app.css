@@ -3,3 +3,23 @@
 @import "tailwindcss/utilities";
 
 /* This file is for your main application CSS */
+.scroll-container {
+    scroll-snap-type: x mandatory;
+    scroll-behavior: smooth;
+}
+
+.scroll-container>div {
+    scroll-snap-align: start;
+}
+
+.no-scrollbar {
+    -ms-overflow-style: none;
+    /* IE and Edge */
+    scrollbar-width: none;
+    /* Firefox */
+}
+
+.no-scrollbar::-webkit-scrollbar {
+    display: none;
+    /* Chrome, Safari, Opera */
+}

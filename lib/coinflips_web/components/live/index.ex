@@ -278,6 +278,7 @@ defmodule CoinflipsWeb.Live.Index do
   def render(assigns) do
     ~H"""
     <div class="min-h-screen flex flex-col bg-gray-950 text-white font-mono">
+      <!-- Notifications Section -->
       <div class="absolute top-4 right-4 space-y-2 z-50">
         <div
           :for={tip <- @tip_list}
@@ -286,125 +287,151 @@ defmodule CoinflipsWeb.Live.Index do
           {tip.message}
         </div>
       </div>
-      <!-- Hero Section -->
-      <div class="p-6 md:p-10 text-center bg-gradient-to-b from-gray-800 to-black">
-        <h1 class="text-3xl md:text-5xl font-extrabold text-neon-purple animate-pulse mb-4">
-          ⚡ COINFLIP BATTLE ⚡
-        </h1>
-        <p class="text-gray-400 text-lg md:text-xl">Flip the coin. Feel the thrill. Win ETH! 🚀</p>
 
-        <button
-          :if={!@wallet_connected}
-          id="wallet-connect"
-          phx-hook="WalletConnect"
-          class="mt-6 bg-neon-blue hover:bg-neon-green px-6 py-2 rounded-full font-bold shadow-lg hover:scale-110 transition"
-        >
-          🔗 Connect Wallet
-        </button>
-      </div>
+    <!-- Main Content -->
+      <div class="flex-grow flex flex-col">
+        <!-- Hero Section -->
+        <div class="p-6 md:p-10 text-center bg-gradient-to-b from-gray-800 to-black">
+          <h1 class="text-3xl md:text-5xl font-extrabold text-neon-purple animate-pulse mb-4">
+            ⚡ COINFLIP BATTLE ⚡
+          </h1>
+          <p class="text-gray-400 text-lg md:text-xl">Flip the coin. Feel the thrill. Win ETH! 🚀</p>
+
+          <button
+            :if={!@wallet_connected}
+            id="wallet-connect"
+            phx-hook="WalletConnect"
+            class="mt-6 bg-neon-blue hover:bg-neon-green px-6 py-2 rounded-full font-bold shadow-lg hover:scale-110 transition"
+          >
+            🔗 Connect Wallet
+          </button>
+        </div>
 
     <!-- Wallet Section -->
-      <div
-        :if={@wallet_connected}
-        class="w-full max-w-lg mx-auto mt-6 p-4 bg-gray-900 rounded-lg shadow-lg"
-      >
-        <h2 class="text-xl font-bold text-neon-green mb-4 text-center">👛 Wallet Overview</h2>
-        <div class="grid gap-4 text-sm text-gray-300">
-          <div class="flex items-center justify-between bg-gray-800 p-3 rounded-lg">
-            <span class="text-neon-blue">🔑 Address</span>
-            <p class="truncate bg-gray-700 px-2 py-1 rounded font-mono w-4/5">{@wallet_address}</p>
-          </div>
-          <div class="flex items-center justify-between bg-gray-800 p-3 rounded-lg">
-            <span class="text-neon-purple">💰 Balance</span>
-            <p class="text-neon-green font-bold">{@wallet_balance} ETH</p>
+        <div
+          :if={@wallet_connected}
+          class="w-full max-w-lg mx-auto mt-6 p-4 bg-gray-900 rounded-lg shadow-lg transition-all duration-500"
+        >
+          <h2 class="text-xl font-bold text-neon-green mb-4 text-center">👛 Wallet Overview</h2>
+          <div class="grid gap-4 text-sm text-gray-300">
+            <div class="flex items-center justify-between bg-gray-800 p-3 rounded-lg">
+              <span class="text-neon-blue">🔑 Address</span>
+              <p class="truncate bg-gray-700 px-2 py-1 rounded font-mono w-4/5">{@wallet_address}</p>
+            </div>
+            <div class="flex items-center justify-between bg-gray-800 p-3 rounded-lg">
+              <span class="text-neon-purple">💰 Balance</span>
+              <p class="text-neon-green font-bold">{@wallet_balance} ETH</p>
+            </div>
           </div>
         </div>
-      </div>
 
-    <!-- Game Creation -->
-      <div
-        id="create-game"
-        class="w-full max-w-lg mx-auto mt-6 p-6 bg-gray-800 rounded-lg shadow-lg"
-        phx-hook="GameActions"
-      >
-        <h2 class="text-2xl text-center font-bold text-neon-blue mb-4">🎯 Start a Game</h2>
-        <form phx-change="validate_bet" phx-submit="create_game" class="flex flex-col gap-4">
-          <input
-            type="number"
-            step="0.001"
-            min={min_bet()}
-            name="bet_amount"
-            placeholder={"Enter bet (Min: #{min_bet()} ETH)"}
-            class="w-full p-3 rounded-lg bg-gray-700 text-white placeholder-gray-400 focus:ring focus:ring-neon-green"
-          />
-          <button
-            disabled={is_nil(@wallet_connected) || is_nil(@bet_amount)}
-            type="submit"
-            class="w-full p-3 rounded-full bg-neon-green hover:bg-neon-blue text-black font-bold hover:scale-105 transition"
-          >
-            🚀 Create Game
-          </button>
-        </form>
-      </div>
+    <!-- Game Creation Section -->
+        <div
+          id="create-game"
+          class="w-full max-w-lg mx-auto mt-6 p-6 bg-gray-800 rounded-lg shadow-lg"
+          phx-hook="GameActions"
+        >
+          <h2 class="text-2xl text-center font-bold text-neon-blue mb-4">🎯 Start a Game</h2>
+          <form phx-change="validate_bet" phx-submit="create_game" class="flex flex-col gap-4">
+            <input
+              type="number"
+              step="0.001"
+              min={min_bet()}
+              name="bet_amount"
+              placeholder={"Enter bet (Min: #{min_bet()} ETH)"}
+              class="w-full p-3 rounded-lg bg-gray-700 text-white placeholder-gray-400 focus:ring focus:ring-neon-green"
+            />
+            <button
+              disabled={is_nil(@wallet_connected) || is_nil(@bet_amount)}
+              type="submit"
+              class="w-full p-3 rounded-full bg-neon-green hover:bg-neon-blue text-black font-bold hover:scale-105 transition"
+            >
+              🚀 Create Game
+            </button>
+          </form>
+        </div>
 
-    <!-- Active Games -->
-      <div class="w-full mt-6 px-6 overflow-x-auto no-scrollbar">
-        <h2 class="text-center text-2xl font-bold text-neon-purple mb-4">🔥 Active Games</h2>
-        <div class="flex gap-4">
+    <!-- Active Games Section -->
+        <div class="relative w-full mt-6 px-6 overflow-hidden flex-grow">
+          <h2 class="text-center text-2xl font-bold text-neon-purple mb-4">🔥 Active Games</h2>
           <div
-            :for={game <- @active_games}
-            :if={game.creator_deposit_confirmed}
-            class="min-w-[250px] bg-gray-700 p-4 rounded-lg shadow-lg hover:scale-105 transition"
+            class="scroll-container flex overflow-x-auto no-scrollbar snap-x snap-mandatory gap-4"
+            id="carousel"
           >
-            <!-- Game Identifier -->
-            <p class="text-gray-500 text-xs">🆔 Game ID: {game.id}</p>
-
-    <!-- Creation Date -->
-            <p class="text-gray-500 text-xs">
-              🕒 Created At: {Timex.format!(game.inserted_at, "{0D}-{0M}-{YYYY} {h24}:{m}:{s}")} UTC
-            </p>
-
-    <!-- Player Wallet -->
-            <p class="text-neon-green font-bold truncate">🎭 Player: {game.player_wallet}</p>
-
-    <!-- Challenger Wallet (if available) -->
-            <p :if={not is_nil(game.challenger_wallet)} class="text-neon-yellow font-bold truncate">
-              🥊 Challenger: {game.challenger_wallet}
-            </p>
-
-    <!-- Bet Amount -->
-            <p class="text-neon-blue font-bold">💰 Bet: {game.bet_amount} ETH</p>
-
-    <!-- Game Status -->
-            <p class="text-gray-400 text-sm">{game.status}</p>
-
-    <!-- Join Game Button -->
-            <button
-              :if={game.result == "pending" && (game.challenger_wallet == nil && @wallet_connected)}
-              phx-click="join_game"
-              phx-value-id={game.id}
-              phx-value-balance={@wallet_balance}
-              class="w-full mt-3 p-2 rounded-lg bg-neon-purple hover:bg-neon-green text-black font-bold transition"
+            <div
+              :for={game <- @active_games}
+              :if={game.creator_deposit_confirmed}
+              class="min-w-[250px] md:min-w-[300px] flex-shrink-0 bg-gray-700 p-4 rounded-lg shadow-lg snap-start"
             >
-              ⚔️ Join Game
-            </button>
-
-    <!-- Flip Coin Button -->
-            <button
-              :if={
-                game.result == "pending" &&
-                  (game.creator_deposit_confirmed &&
-                     game.challenger_deposit_confirmed &&
-                     @wallet_address in [game.player_wallet, game.challenger_wallet])
-              }
-              phx-click="flip_coin"
-              phx-value-id={game.id}
-              class="w-full mt-3 p-2 rounded-lg bg-neon-blue hover:bg-neon-green text-black font-bold transition"
-            >
-              🎲 Flip Coin
-            </button>
+              <p class="text-gray-500 text-xs">🆔 Game ID: {game.id}</p>
+              <p class="text-gray-500 text-xs">
+                🕒 Created At: {Timex.format!(game.inserted_at, "{0D}-{0M}-{YYYY} {h24}:{m}:{s}")} UTC
+              </p>
+              <p class="text-neon-green font-bold truncate">🎭 Player: {game.player_wallet}</p>
+              <p :if={not is_nil(game.challenger_wallet)} class="text-neon-yellow font-bold truncate">
+                🥊 Challenger: {game.challenger_wallet}
+              </p>
+              <p class="text-neon-blue font-bold">💰 Bet: {game.bet_amount} ETH</p>
+              <p class="text-gray-400 text-sm">{game.status}</p>
+              <button
+                :if={game.result == "pending" && (game.challenger_wallet == nil && @wallet_connected)}
+                phx-click="join_game"
+                phx-value-id={game.id}
+                phx-value-balance={@wallet_balance}
+                class="w-full mt-3 p-2 rounded-lg bg-neon-purple hover:bg-neon-green text-black font-bold transition"
+              >
+                ⚔️ Join Game
+              </button>
+              <button
+                :if={
+                  game.result == "pending" &&
+                    (game.creator_deposit_confirmed &&
+                       game.challenger_deposit_confirmed &&
+                       @wallet_address in [game.player_wallet, game.challenger_wallet])
+                }
+                phx-click="flip_coin"
+                phx-value-id={game.id}
+                class="w-full mt-3 p-2 rounded-lg bg-neon-blue hover:bg-neon-green text-black font-bold transition"
+              >
+                🎲 Flip Coin
+              </button>
+            </div>
           </div>
         </div>
+      </div>
+      <!-- Fixed Carousel Controls -->
+      <!-- Updated Navigation Menu -->
+      <div class="fixed top-1/2 transform -translate-y-1/2 left-4 z-50">
+        <button
+          onclick="scrollToSide('left')"
+          class="p-4 bg-gradient-to-r from-gray-900 to-neon-purple hover:from-neon-green hover:to-gray-900 text-white rounded-l-full shadow-lg transform transition-all hover:scale-110"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            class="h-6 w-6"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+          </svg>
+        </button>
+      </div>
+      <div class="fixed top-1/2 transform -translate-y-1/2 right-4 z-50">
+        <button
+          onclick="scrollToSide('right')"
+          class="p-4 bg-gradient-to-r from-gray-900 to-neon-green hover:from-neon-purple hover:to-gray-900 text-white rounded-r-full shadow-lg transform transition-all hover:scale-110"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            class="h-6 w-6"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+          </svg>
+        </button>
       </div>
 
     <!-- Footer -->
@@ -414,6 +441,19 @@ defmodule CoinflipsWeb.Live.Index do
           <span>✨ Play Smart. Win Big! 🎲</span>
         </div>
       </footer>
+
+      <script>
+        function scrollToSide(direction) {
+          const carousel = document.getElementById("carousel");
+          const cardWidth = carousel.firstElementChild.offsetWidth + 16; // Card width + gap (16px)
+
+          if (direction === "left") {
+            carousel.scrollBy({ left: -cardWidth, behavior: "smooth" });
+          } else if (direction === "right") {
+            carousel.scrollBy({ left: cardWidth, behavior: "smooth" });
+          }
+        }
+      </script>
     </div>
     """
   end
