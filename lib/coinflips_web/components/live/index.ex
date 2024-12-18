@@ -229,17 +229,17 @@ defmodule CoinflipsWeb.Live.Index do
 
   def handle_event(
         "eth_deposit_failure",
-        %{"error" => error, "game_id" => game_id, "role" => role},
+        %{"error" => %{"shortMessage" => short_message}, "game_id" => game_id, "role" => role},
         socket
       ) do
     message =
       case role do
-        "creator" -> "⚠️ Creator deposit failed for game #{game_id}: #{error}."
-        "challenger" -> "⚠️ Challenger deposit failed for game #{game_id}: #{error}."
+        "creator" -> "⚠️ Creator deposit failed for game #{game_id}: #{short_message}."
+        "challenger" -> "⚠️ Challenger deposit failed for game #{game_id}: #{short_message}."
       end
 
     Coinflips.Games.update_game(Coinflips.Games.get_game!(game_id), %{
-      status: "❌ Game failed ",
+      status: "❌ Game failed #{short_message}",
       result: "failed"
     })
 
@@ -302,7 +302,7 @@ defmodule CoinflipsWeb.Live.Index do
           🔗 Connect Wallet
         </button>
       </div>
-      
+
     <!-- Wallet Section -->
       <div
         :if={@wallet_connected}
@@ -320,7 +320,7 @@ defmodule CoinflipsWeb.Live.Index do
           </div>
         </div>
       </div>
-      
+
     <!-- Game Creation -->
       <div
         id="create-game"
@@ -346,7 +346,7 @@ defmodule CoinflipsWeb.Live.Index do
           </button>
         </form>
       </div>
-      
+
     <!-- Active Games -->
       <div class="w-full mt-6 px-6 overflow-x-auto no-scrollbar">
         <h2 class="text-center text-2xl font-bold text-neon-purple mb-4">🔥 Active Games</h2>
@@ -358,26 +358,26 @@ defmodule CoinflipsWeb.Live.Index do
           >
             <!-- Game Identifier -->
             <p class="text-gray-500 text-xs">🆔 Game ID: {game.id}</p>
-            
+
     <!-- Creation Date -->
             <p class="text-gray-500 text-xs">
               🕒 Created At: {Timex.format!(game.inserted_at, "{0D}-{0M}-{YYYY} {h24}:{m}:{s}")} UTC
             </p>
-            
+
     <!-- Player Wallet -->
             <p class="text-neon-green font-bold truncate">🎭 Player: {game.player_wallet}</p>
-            
+
     <!-- Challenger Wallet (if available) -->
             <p :if={not is_nil(game.challenger_wallet)} class="text-neon-yellow font-bold truncate">
               🥊 Challenger: {game.challenger_wallet}
             </p>
-            
+
     <!-- Bet Amount -->
             <p class="text-neon-blue font-bold">💰 Bet: {game.bet_amount} ETH</p>
-            
+
     <!-- Game Status -->
             <p class="text-gray-400 text-sm">{game.status}</p>
-            
+
     <!-- Join Game Button -->
             <button
               :if={game.result == "pending" && (game.challenger_wallet == nil && @wallet_connected)}
@@ -388,7 +388,7 @@ defmodule CoinflipsWeb.Live.Index do
             >
               ⚔️ Join Game
             </button>
-            
+
     <!-- Flip Coin Button -->
             <button
               :if={
@@ -406,7 +406,7 @@ defmodule CoinflipsWeb.Live.Index do
           </div>
         </div>
       </div>
-      
+
     <!-- Footer -->
       <footer class="mt-auto p-4 bg-gray-900 text-center text-gray-400">
         <div class="flex justify-center gap-2">
