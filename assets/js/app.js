@@ -81,7 +81,6 @@ Hooks.GameActions = {
   },
 };
 
-
 Hooks.WalletConnect = {
   mounted() {
     this.el.addEventListener("click", async () => {
@@ -114,6 +113,7 @@ Hooks.WalletConnect = {
     });
   }
 };
+
 
 let csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 let liveSocket = new LiveSocket("/live", Socket, {

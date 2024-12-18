@@ -45,6 +45,10 @@ defmodule CoinflipsWeb.Live.Index do
     {:noreply, assign(socket, active_games: Coinflips.Games.list_games())}
   end
 
+  def handle_event("start_coin_flip", _params, socket) do
+    {:noreply, push_event(socket, "coin-flip", %{})}
+  end
+
   # Wallet Connection
   @impl true
   def handle_event("wallet_connected", %{"address" => address, "balance" => balance}, socket) do
@@ -278,7 +282,22 @@ defmodule CoinflipsWeb.Live.Index do
   def render(assigns) do
     ~H"""
     <div class="min-h-screen flex flex-col bg-gray-950 text-white font-mono">
-      <!-- Notifications Section -->
+      <div id="coin-container" class="fixed inset-0 z-50 pointer-events-none">
+        <div
+          id="coin"
+          class="absolute hidden w-16 h-16 bg-yellow-500 rounded-full shadow-lg transform scale-150"
+          style="right: 25%; top: 0;"
+        >
+        </div>
+        <div
+          id="coin-result"
+          class="absolute hidden text-4xl font-bold text-white text-center w-full"
+          style="top: 50%; transform: translateY(-50%);"
+        >
+        </div>
+      </div>
+
+    <!-- Notifications Section -->
       <div class="absolute top-4 right-4 space-y-2 z-50">
         <div
           :for={tip <- @tip_list}
@@ -296,6 +315,21 @@ defmodule CoinflipsWeb.Live.Index do
             ⚡ COINFLIP BATTLE ⚡
           </h1>
           <p class="text-gray-400 text-lg md:text-xl">Flip the coin. Feel the thrill. Win ETH! 🚀</p>
+          <button
+            id="flip-coin-trigger"
+            onclick="triggerCoinFlip()"
+            class="absolute top-6 right-1/3 transform translate-x-1/2 p-4 bg-gradient-to-br from-yellow-500 to-orange-600 hover:from-orange-600 hover:to-yellow-500 text-white rounded-full shadow-lg transition-transform hover:scale-110"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              class="w-6 h-6"
+            >
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6l4 2" />
+            </svg>
+          </button>
 
           <button
             :if={!@wallet_connected}
@@ -452,7 +486,42 @@ defmodule CoinflipsWeb.Live.Index do
           } else if (direction === "right") {
             carousel.scrollBy({ left: cardWidth, behavior: "smooth" });
           }
+        };
+      </script>
+      <script>
+          function triggerCoinFlip() {
+        const coin = document.getElementById("coin");
+        const resultContainer = document.getElementById("coin-result");
+        const results = ["Heads", "Tails"];
+        const randomResult = results[Math.floor(Math.random() * results.length)];
+
+        // Reset result display
+        resultContainer.classList.add("hidden");
+        resultContainer.innerText = "";
+
+        // Show the coin and start the animation
+        coin.classList.remove("hidden");
+        coin.style.animation = "none"; // Reset animation
+        void coin.offsetWidth; // Trigger reflow
+        coin.style.animation = "coinFlip 2s linear forwards";
+
+        // Show result after the animation ends
+        setTimeout(() => {
+        coin.classList.add("hidden");
+        resultContainer.innerText = randomResult;
+        resultContainer.classList.remove("hidden");
+
+        // Hide result after a few seconds
+        setTimeout(() => {
+          resultContainer.classList.add("hidden");
+        }, 3000);
+        }, 2000);
         }
+
+            // Example trigger for programmatic use
+            document.addEventListener("phx:coin-flip", () => {
+              triggerCoinFlip();
+            });
       </script>
     </div>
     """
