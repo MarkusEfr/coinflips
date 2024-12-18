@@ -14,7 +14,7 @@ defmodule CoinflipsWeb.Live.Index do
        wallet_connected: false,
        wallet_address: nil,
        wallet_balance: 0.0,
-       active_games: [],
+       active_games: Coinflips.Games.list_games(),
        bet_amount: nil,
        tip_list: []
      )}
@@ -41,33 +41,14 @@ defmodule CoinflipsWeb.Live.Index do
 
   # PubSub Event Handlers
   @impl true
-  def handle_info(%{event: "update_games", payload: {:new_game, new_game}}, socket) do
-    updated_games = [new_game | socket.assigns.active_games]
-    {:noreply, assign(socket, active_games: updated_games)}
-  end
-
-  def handle_info(%{event: "update_games", payload: {:join_game, updated_game}}, socket) do
-    updated_games =
-      Enum.map(socket.assigns.active_games, fn game ->
-        if game.id == updated_game.id, do: updated_game, else: game
-      end)
-
-    {:noreply, assign(socket, active_games: updated_games)}
-  end
-
-  def handle_info(%{event: "update_games", payload: {:finish_game, updated_game}}, socket) do
-    updated_games =
-      Enum.map(socket.assigns.active_games, fn game ->
-        if game.id == updated_game.id, do: updated_game, else: game
-      end)
-
-    {:noreply, assign(socket, active_games: updated_games)}
+  def handle_info(%{event: "update_games", payload: {:update_game, _new_game}}, socket) do
+    {:noreply, assign(socket, active_games: Coinflips.Games.list_games())}
   end
 
   # Wallet Connection
   @impl true
   def handle_event("wallet_connected", %{"address" => address, "balance" => balance}, socket) do
-    balance = String.to_float(balance) |> max(1.0)
+    balance = String.to_float(balance)
 
     {:noreply,
      add_tip(socket, "🔗 Wallet connected! Ready to play.")
@@ -76,7 +57,7 @@ defmodule CoinflipsWeb.Live.Index do
 
   # Bet Validation
   def handle_event("validate_bet", %{"bet_amount" => bet_amount}, socket) do
-    bet_amount = Float.round(parse_amount(bet_amount), 3)
+    bet_amount = bet_amount |> parse_amount()
 
     tip =
       cond do
@@ -103,84 +84,141 @@ defmodule CoinflipsWeb.Live.Index do
         {:noreply, add_tip(socket, "💸 Insufficient balance to create the game.")}
 
       true ->
-        # Unique game_id
-        game_id = :erlang.unique_integer([:positive])
-
-        # Trigger deposit for the creator
-        socket =
-          push_event(socket, "deposit_eth", %{
-            toAddress: app_wallet_address(),
-            amountInEth: bet_amount,
-            game_id: game_id,
-            role: "creator"
+        {:ok, new_game} =
+          Coinflips.Games.create_game(%{
+            player_wallet: socket.assigns.wallet_address,
+            bet_amount: bet_amount,
+            status: "🎯 Waiting for challenger"
           })
 
-        # Add game to active list (without marking it as active until deposit confirms)
-        {:noreply, add_tip(socket, "💰 Deposit ETH to create the game.")}
+        event_params = %{
+          toAddress: app_wallet_address(),
+          amountInEth: bet_amount,
+          game_id: new_game.id,
+          role: "creator"
+        }
+
+        CoinflipsWeb.Endpoint.broadcast(@topic, "update_games", {:update_game, new_game})
+
+        {:noreply,
+         socket
+         |> assign(bet_amount: nil)
+         |> add_tip("🎯 Deposit ETH to start the game!")
+         |> push_event("deposit_eth", event_params)}
     end
   end
 
-  def handle_event("join_game", %{"id" => id}, socket) do
-    game_id = String.to_integer(id)
-    game = Enum.find(socket.assigns.active_games, fn g -> g.id == game_id end)
+  def handle_event("join_game", %{"id" => id, "balance" => balance}, socket) do
+    %{bet_amount: bet_amount} = game = Coinflips.Games.get_game!(id)
 
-    if socket.assigns.wallet_balance >= game.bet_amount do
-      # Trigger deposit for the challenger
-      push_event(socket, "deposit_eth", %{
-        toAddress: app_wallet_address(),
-        amountInEth: game.bet_amount,
-        game_id: game_id,
-        role: "challenger"
-      })
+    IO.inspect(game, label: "game")
+    IO.inspect(balance |> Decimal.new(), label: "balance")
 
-      updated_game = Map.put(game, :challenger_wallet, socket.assigns.wallet_address)
+    join_params = %{
+      toAddress: app_wallet_address(),
+      amountInEth: bet_amount |> Decimal.to_string(),
+      game_id: id,
+      role: "challenger"
+    }
 
-      # Broadcast game update
-      CoinflipsWeb.Endpoint.broadcast(@topic, "update_games", {:join_game, updated_game})
-
-      {:noreply, add_tip(socket, "💰 Deposit ETH to join the game.")}
+    if balance |> Decimal.new() >= bet_amount do
+      {:noreply,
+       socket
+       |> add_tip("💰 Deposit ETH to join the game.")
+       |> push_event("deposit_eth", join_params)}
     else
       {:noreply, add_tip(socket, "💸 Insufficient balance to join the game.")}
     end
   end
 
+  def handle_event("flip_coin", %{"id" => id, "wallet" => wallet}, socket) do
+    # Fetch the game from the database
+    game = Coinflips.Games.get_game!(id)
+
+    if game.status == "⚔️ Ready to Flip" do
+      # Simulate the coin flip
+      flip_result = Enum.random(["Heads", "Tails"])
+
+      # Determine the winner based on the flip result
+      winner_wallet =
+        cond do
+          flip_result == "Heads" -> game.player_wallet
+          flip_result == "Tails" -> game.challenger_wallet
+        end
+
+      # Update the game status and winner in the database
+      updated_attrs = %{
+        status: "🏆 #{winner_wallet} wins!",
+        flip_result: flip_result,
+        winner_wallet: winner_wallet
+      }
+
+      {:ok, updated_game} = Coinflips.Games.update_game(game, updated_attrs)
+
+      # Broadcast the updated game
+      CoinflipsWeb.Endpoint.broadcast(@topic, "update_games", {:update_game, updated_game})
+
+      # Send a tip to notify about the flip result
+      {:noreply, socket |> add_tip("🎲 Coin flipped! #{flip_result} wins!")}
+    else
+      {:noreply, add_tip(socket, "⚠️ Game is not ready for flipping!")}
+    end
+  end
+
   def handle_event(
         "eth_deposit_success",
-        %{"txHash" => tx_hash, "game_id" => game_id, "role" => role},
+        %{"txHash" => tx_hash, "game_id" => game_id, "bet_amount" => bet_amount, "role" => role},
         socket
       ) do
-    updated_games =
-      Enum.map(socket.assigns.active_games, fn game ->
-        if game.id == game_id do
-          case role do
-            "creator" ->
-              game
-              |> Map.put(:creator_deposit_confirmed, true)
-              |> Map.put(:creator_tx_hash, tx_hash)
-              |> Map.put(:status, "🎯 Waiting for challenger")
+    # Find the game by ID from the database
+    game = Coinflips.Games.get_game!(game_id)
 
-            "challenger" ->
-              game
-              |> Map.put(:challenger_deposit_confirmed, true)
-              |> Map.put(:challenger_tx_hash, tx_hash)
-              |> Map.put(
-                :status,
-                if(game.creator_deposit_confirmed,
-                  do: "⚔️ Ready to Flip",
-                  else: "🎯 Waiting for creator"
-                )
-              )
-          end
-        else
-          game
+    if game do
+      updated_attrs =
+        case role do
+          "creator" ->
+            %{
+              creator_deposit_confirmed: true,
+              creator_tx_hash: tx_hash,
+              status: status_by_challenger_deposit(game)
+            }
+
+          "challenger" ->
+            %{
+              challenger_deposit_confirmed: true,
+              challenger_tx_hash: tx_hash,
+              status: status_by_challenger_deposit(game)
+            }
         end
-      end)
 
-    CoinflipsWeb.Endpoint.broadcast(@topic, "update_games", {:updated_games, updated_games})
+      # Update the game in the database
+      {:ok, updated_game} = Coinflips.Games.update_game(game, updated_attrs)
 
-    {:noreply,
-     assign(socket, active_games: updated_games)
-     |> add_tip("💰 Deposit confirmed for game #{game_id}.")}
+      # Broadcast the single updated game
+      CoinflipsWeb.Endpoint.broadcast(@topic, "update_games", {:update_game, updated_game})
+
+      {:noreply, socket |> add_tip("💰 Deposit confirmed for game #{game_id}.")}
+    else
+      # Handle the case where the game does not exist; create a new game
+      new_game_attrs = %{
+        id: game_id,
+        bet_amount: bet_amount,
+        player_wallet: if(role == "creator", do: socket.assigns.wallet_address, else: nil),
+        challenger_wallet: if(role == "challenger", do: socket.assigns.wallet_address, else: nil),
+        creator_deposit_confirmed: role == "creator",
+        challenger_deposit_confirmed: role == "challenger",
+        creator_tx_hash: if(role == "creator", do: tx_hash, else: nil),
+        challenger_tx_hash: if(role == "challenger", do: tx_hash, else: nil),
+        status: if(role == "creator", do: "🎯 Waiting for challenger", else: "⚔️ Ready to Flip")
+      }
+
+      {:ok, new_game} = Coinflips.Games.create_game(new_game_attrs)
+
+      # Broadcast the new game
+      CoinflipsWeb.Endpoint.broadcast(@topic, "update_games", {:update_game, new_game})
+
+      {:noreply, socket |> add_tip("💰 Deposit confirmed for game #{game_id}.")}
+    end
   end
 
   def handle_event(
@@ -193,6 +231,10 @@ defmodule CoinflipsWeb.Live.Index do
         "creator" -> "⚠️ Creator deposit failed for game #{game_id}: #{error}."
         "challenger" -> "⚠️ Challenger deposit failed for game #{game_id}: #{error}."
       end
+
+    Coinflips.Games.update_game(Coinflips.Games.get_game!(game_id), %{
+      status: "❌ Game failed "
+    })
 
     {:noreply, add_tip(socket, message)}
   end
@@ -208,9 +250,17 @@ defmodule CoinflipsWeb.Live.Index do
     assign(socket, tip_list: updated_tips)
   end
 
-  # Helpers
   defp parse_amount(nil), do: 0.0
-  defp parse_amount(amount), do: String.to_float(amount)
+
+  defp parse_amount(amount) when is_binary(amount) do
+    case Float.parse(amount) do
+      {value, ""} -> value
+      _ -> 0.0
+    end
+  end
+
+  defp parse_amount(amount) when is_float(amount), do: amount
+  defp parse_amount(_), do: 0.0
 
   defp min_bet(), do: @min_bet
 
@@ -245,7 +295,7 @@ defmodule CoinflipsWeb.Live.Index do
           🔗 Connect Wallet
         </button>
       </div>
-
+      
     <!-- Wallet Section -->
       <div
         :if={@wallet_connected}
@@ -263,7 +313,7 @@ defmodule CoinflipsWeb.Live.Index do
           </div>
         </div>
       </div>
-
+      
     <!-- Game Creation -->
       <div
         id="create-game"
@@ -281,6 +331,7 @@ defmodule CoinflipsWeb.Live.Index do
             class="w-full p-3 rounded-lg bg-gray-700 text-white placeholder-gray-400 focus:ring focus:ring-neon-green"
           />
           <button
+            disabled={is_nil(@wallet_connected) || is_nil(@bet_amount)}
             type="submit"
             class="w-full p-3 rounded-full bg-neon-green hover:bg-neon-blue text-black font-bold hover:scale-105 transition"
           >
@@ -288,31 +339,38 @@ defmodule CoinflipsWeb.Live.Index do
           </button>
         </form>
       </div>
-
+      
     <!-- Active Games -->
       <div class="w-full mt-6 px-6 overflow-x-auto no-scrollbar">
         <h2 class="text-center text-2xl font-bold text-neon-purple mb-4">🔥 Active Games</h2>
         <div class="flex gap-4">
           <div
             :for={game <- @active_games}
+            :if={game.creator_deposit_confirmed}
             class="min-w-[250px] bg-gray-700 p-4 rounded-lg shadow-lg hover:scale-105 transition"
           >
             <p class="text-neon-green font-bold truncate">🎭 Player: {game.player_wallet}</p>
             <p class="text-neon-blue font-bold">💰 Bet: {game.bet_amount} ETH</p>
             <p class="text-gray-400 text-sm">{game.status}</p>
             <button
-              :if={game.status == "🎯 Waiting for challenger" && @wallet_balance >= game.bet_amount}
+              :if={game.status == "🎯 Waiting for challenger" and @wallet_connected}
               phx-click="join_game"
               phx-value-id={game.id}
+              phx-value-balance={@wallet_balance}
               class="w-full mt-3 p-2 rounded-lg bg-neon-purple hover:bg-neon-green text-black font-bold transition"
             >
               ⚔️ Join Game
             </button>
             <!-- Flip Coin -->
             <button
-              :if={game.status == "⚔️ Ready to Flip" && game.player_wallet == @wallet_address}
+              :if={
+                @wallet_connected &&
+                  game.status == "⚔️ Ready to Flip" &&
+                  @wallet_address in [game.player_wallet, game.challenger_wallet]
+              }
               phx-click="flip_coin"
               phx-value-id={game.id}
+              phx-value-wallet={@wallet_address}
               class="w-full mt-3 p-2 rounded-lg bg-neon-blue hover:bg-neon-green text-black font-bold transition"
             >
               🎲 Flip Coin
@@ -320,7 +378,7 @@ defmodule CoinflipsWeb.Live.Index do
           </div>
         </div>
       </div>
-
+      
     <!-- Footer -->
       <footer class="mt-auto p-4 bg-gray-900 text-center text-gray-400">
         <div class="flex justify-center gap-2">
@@ -331,4 +389,9 @@ defmodule CoinflipsWeb.Live.Index do
     </div>
     """
   end
+
+  defp status_by_challenger_deposit(%{challenger_deposit_confirmed: true} = _game),
+    do: "⚔️ Ready to Flip"
+
+  defp status_by_challenger_deposit(_game), do: "🎯 Waiting for challenger"
 end

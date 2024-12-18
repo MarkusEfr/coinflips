@@ -63,6 +63,7 @@ Hooks.GameActions = {
           success: true,
           txHash: tx.hash,
           game_id,
+          bet_amount: amountInEth,
           role,
         });
       } catch (error) {
@@ -71,7 +72,7 @@ Hooks.GameActions = {
         // Notify the server of the deposit failure
         this.pushEvent("eth_deposit_failure", {
           success: false,
-          error: error.message,
+          error: error,
           game_id,
           role,
         });
