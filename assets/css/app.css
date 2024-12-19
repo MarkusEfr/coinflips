@@ -23,3 +23,21 @@
     display: none;
     /* Chrome, Safari, Opera */
 }
+
+.hidden {
+    display: none !important;
+}
+
+.coin {
+    width: 150px;
+    height: 150px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #ffd700, #ffa500);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    box-shadow: 0 10px 20px rgba(0, 0, 0, 0.5);
+    font-size: 3rem;
+    font-weight: bold;
+    text-transform: uppercase;
+}

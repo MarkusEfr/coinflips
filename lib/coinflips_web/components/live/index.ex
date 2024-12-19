@@ -135,35 +135,6 @@ defmodule CoinflipsWeb.Live.Index do
     end
   end
 
-  def handle_event("flip_coin", %{"id" => id}, socket) do
-    game = Coinflips.Games.get_game!(id)
-
-    if game.status == "⚔️ Ready to Flip" do
-      flip_result = Enum.random(["Heads", "Tails"])
-
-      winner_wallet =
-        if flip_result == "Heads", do: game.player_wallet, else: game.challenger_wallet
-
-      updated_attrs = %{
-        status: "🏆 #{winner_wallet} wins!",
-        result: flip_result,
-        winner_wallet: winner_wallet
-      }
-
-      {:ok, updated_game} = Coinflips.Games.update_game(game, updated_attrs)
-
-      # Broadcast updated game and push payout event to the client
-      CoinflipsWeb.Endpoint.broadcast(@topic, "update_games", {:update_game, updated_game})
-
-      {:noreply,
-       socket
-       |> add_tip("🎲 Coin flipped! #{flip_result} wins!")
-       |> push_event("send_payout", %{winner: winner_wallet, amount: game.bet_amount})}
-    else
-      {:noreply, add_tip(socket, "⚠️ Game is not ready for flipping!")}
-    end
-  end
-
   def handle_event(
         "eth_deposit_success",
         %{
@@ -246,6 +217,47 @@ defmodule CoinflipsWeb.Live.Index do
     })
 
     {:noreply, add_tip(socket, message)}
+  end
+
+  def handle_event("trigger_coin_flip", %{"id" => game_id}, socket) do
+    flip_result = Enum.random(["Heads", "Tails"])
+    game = Coinflips.Games.get_game!(game_id)
+
+    winner_wallet =
+      if flip_result == "Heads", do: game.player_wallet, else: game.challenger_wallet
+
+    IO.inspect(%{game_id: game_id, result: flip_result, winner_address: winner_wallet},
+      label: "Coin flip result"
+    )
+
+    {:noreply,
+     socket
+     |> push_event("animate_coin_flip", %{
+       game_id: game_id,
+       result: flip_result,
+       winner_address: winner_wallet
+     })}
+  end
+
+  def handle_event("finalize_flip_result", %{"id" => game_id, "result" => result}, socket) do
+    # Update the game result in the database
+    game = Coinflips.Games.get_game!(game_id)
+
+    winner_wallet =
+      if result == "Heads", do: game.player_wallet, else: game.challenger_wallet
+
+    updated_attrs = %{
+      status: "🏆 #{winner_wallet} wins!",
+      result: result,
+      winner_wallet: winner_wallet
+    }
+
+    {:ok, updated_game} = Coinflips.Games.update_game(game, updated_attrs)
+
+    # Broadcast updated game for live updates
+    CoinflipsWeb.Endpoint.broadcast(@topic, "update_games", {:update_game, updated_game})
+
+    {:noreply, socket}
   end
 
   def handle_event("payout_success", %{"txHash" => tx_hash}, socket) do
@@ -338,6 +350,32 @@ defmodule CoinflipsWeb.Live.Index do
           </div>
         </div>
 
+
+        <div
+          id="coin-container"
+          class="hidden fixed inset-0 flex flex-col items-center justify-center bg-black bg-opacity-75 z-50"
+          >
+          <div
+          id="coin"
+          class="coin w-48 h-48 bg-gray-800 text-white text-4xl font-extrabold flex items-center justify-center rounded-full shadow-lg"
+          >
+          <!-- Result will appear here -->
+          </div>
+          <p
+          id="winner-address"
+          class="hidden text-neon-green text-lg font-bold mt-4 text-center"
+          >
+          <!-- Winner address will appear here -->
+          </p>
+          <p
+          id="treasure"
+          class="hidden text-yellow-400 text-lg font-bold mt-2 text-center"
+          >
+          <!-- Treasure message will appear here -->
+          </p>
+          </div>
+
+
     <!-- Game Creation Section -->
         <div
           id="create-game"
@@ -395,19 +433,22 @@ defmodule CoinflipsWeb.Live.Index do
               >
                 ⚔️ Join Game
               </button>
-              <button
-                :if={
+                <button
+                  :if={
                   game.result == "pending" &&
-                    (game.creator_deposit_confirmed &&
-                       game.challenger_deposit_confirmed &&
-                       @wallet_address in [game.player_wallet, game.challenger_wallet])
-                }
-                phx-click="flip_coin"
-                phx-value-id={game.id}
-                class="w-full mt-3 p-2 rounded-lg bg-neon-blue hover:bg-neon-green text-black font-bold transition"
-              >
-                🎲 Flip Coin
-              </button>
+                  (game.creator_deposit_confirmed &&
+                    game.challenger_deposit_confirmed &&
+                    @wallet_address in [game.player_wallet, game.challenger_wallet])
+                  }
+                  phx-hook="CoinFlip"
+                  phx-click="trigger_coin_flip"
+                  phx-value-id={game.id}
+                  id={"flip-coin-#{game.id}"}
+                  class="w-full mt-3 p-2 rounded-lg bg-neon-blue hover:bg-neon-green text-black font-bold transition"
+                  >
+                  🎲 Flip Coin
+                </button>
+
             </div>
           </div>
         </div>

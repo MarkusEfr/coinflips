@@ -23,8 +23,24 @@ import { LiveSocket } from "phoenix_live_view"
 import topbar from "../vendor/topbar"
 import { ethers } from "ethers"
 import dotenv from "dotenv";
+import { startCryptoCoinAnimation } from "./coin";
 
 let Hooks = {};
+
+Hooks.CoinFlip = {
+  mounted() {
+    console.log("CoinFlip hook mounted!");
+
+    this.handleEvent("animate_coin_flip", ({ game_id, result, winner_address }) => {
+      console.log("Animating coin flip for game ID:", game_id, "Result:", result, "Winner:", winner_address);
+
+      startCryptoCoinAnimation(result, winner_address, () => {
+        console.log("Animation complete, triggering backend update...");
+        this.pushEvent("finalize_flip_result", { id: game_id, result });
+      });
+    });
+  },
+};
 
 Hooks.PayoutHook = {
   mounted() {
