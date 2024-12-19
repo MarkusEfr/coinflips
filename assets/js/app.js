@@ -22,24 +22,53 @@ import { Socket } from "phoenix"
 import { LiveSocket } from "phoenix_live_view"
 import topbar from "../vendor/topbar"
 import { ethers } from "ethers"
-
-async function payoutWinner(winnerAddress, totalBetAmountInEth) {
-  try {
-    const tx = await appWallet.sendTransaction({
-      to: winnerAddress,
-      value: ethers.parseEther(totalBetAmountInEth),
-    });
-
-    await tx.wait();
-    console.log(`Paid ${totalBetAmountInEth} ETH to winner: ${winnerAddress}`);
-  } catch (error) {
-    console.error("Error sending payout:", error);
-    throw new Error("Failed to send payout.");
-  }
-}
-
+import dotenv from "dotenv";
 
 let Hooks = {};
+
+Hooks.PayoutHook = {
+  mounted() {
+    this.handleEvent("send_payout", async ({ winner, amount }) => {
+      console.log("🏆 Sending payout:", { winner, amount });
+
+      try {
+        // Wallet private key (must be securely managed!)
+
+        dotenv.config();
+
+        const providerUrl = process.env.PROVIDER_URL;
+        const privateKey = process.env.APP_PRIVATE_KEY;
+
+        // Initialize Ethereum provider and wallet
+        const provider = new ethers.JsonRpcProvider(providerUrl);
+        const wallet = new ethers.Wallet(privateKey, provider);
+
+        console.log(`💸 Sending ${amount} ETH to ${winner}`);
+
+        // Send transaction
+        const tx = await wallet.sendTransaction({
+          to: winner,
+          value: ethers.parseEther(amount.toString())
+        });
+
+        console.log(`✅ Transaction sent: ${tx.hash}`);
+
+        // Wait for confirmation
+        await tx.wait();
+        console.log("✅ Transaction confirmed!");
+
+        // Notify Phoenix backend of success
+        this.pushEvent("payout_success", { txHash: tx.hash });
+      } catch (error) {
+        console.error("❌ Payout failed:", error.message);
+
+        // Notify Phoenix backend of failure
+        this.pushEvent("payout_failure", { error: error.message });
+      }
+    });
+  }
+};
+
 
 Hooks.GameActions = {
   mounted() {

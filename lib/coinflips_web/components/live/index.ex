@@ -5,6 +5,9 @@ defmodule CoinflipsWeb.Live.Index do
   @min_bet 0.001
   @app_wallet_address "0xa1207Ea48191889e931e11415cE13DF5d9654852"
 
+  @provider_url System.get_env("PROVIDER_URL")
+  @private_key System.get_env("APP_PRIVATE_KEY")
+
   @impl true
   def mount(_params, _session, socket) do
     if connected?(socket), do: CoinflipsWeb.Endpoint.subscribe(@topic)
@@ -133,21 +136,14 @@ defmodule CoinflipsWeb.Live.Index do
   end
 
   def handle_event("flip_coin", %{"id" => id}, socket) do
-    # Fetch the game from the database
     game = Coinflips.Games.get_game!(id)
 
     if game.status == "⚔️ Ready to Flip" do
-      # Simulate the coin flip
       flip_result = Enum.random(["Heads", "Tails"])
 
-      # Determine the winner based on the flip result
       winner_wallet =
-        cond do
-          flip_result == "Heads" -> game.player_wallet
-          flip_result == "Tails" -> game.challenger_wallet
-        end
+        if flip_result == "Heads", do: game.player_wallet, else: game.challenger_wallet
 
-      # Update the game status and winner in the database
       updated_attrs = %{
         status: "🏆 #{winner_wallet} wins!",
         result: flip_result,
@@ -156,11 +152,13 @@ defmodule CoinflipsWeb.Live.Index do
 
       {:ok, updated_game} = Coinflips.Games.update_game(game, updated_attrs)
 
-      # Broadcast the updated game
+      # Broadcast updated game and push payout event to the client
       CoinflipsWeb.Endpoint.broadcast(@topic, "update_games", {:update_game, updated_game})
 
-      # Send a tip to notify about the flip result
-      {:noreply, socket |> add_tip("🎲 Coin flipped! #{flip_result} wins!")}
+      {:noreply,
+       socket
+       |> add_tip("🎲 Coin flipped! #{flip_result} wins!")
+       |> push_event("send_payout", %{winner: winner_wallet, amount: game.bet_amount})}
     else
       {:noreply, add_tip(socket, "⚠️ Game is not ready for flipping!")}
     end
@@ -250,6 +248,16 @@ defmodule CoinflipsWeb.Live.Index do
     {:noreply, add_tip(socket, message)}
   end
 
+  def handle_event("payout_success", %{"txHash" => tx_hash}, socket) do
+    IO.puts("✅ Payout successful! TX Hash: #{tx_hash}")
+    {:noreply, add_tip(socket, "🏆 Payout sent! Transaction: #{tx_hash}")}
+  end
+
+  def handle_event("payout_failure", %{"error" => error}, socket) do
+    IO.puts("❌ Payout failed: #{error}")
+    {:noreply, add_tip(socket, "⚠️ Payout failed: #{error}")}
+  end
+
   defp add_tip(socket, message) do
     tip_id = :erlang.system_time(:millisecond)
 
@@ -282,6 +290,8 @@ defmodule CoinflipsWeb.Live.Index do
   def render(assigns) do
     ~H"""
     <div class="min-h-screen flex flex-col bg-gray-950 text-white font-mono">
+    <div id="payout-hook" phx-hook="PayoutHook"></div>
+
       <div id="coin-container" class="fixed inset-0 z-50 pointer-events-none">
         <div
           id="coin"
