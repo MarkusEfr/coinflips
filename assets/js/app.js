@@ -22,7 +22,6 @@ import { Socket } from "phoenix"
 import { LiveSocket } from "phoenix_live_view"
 import topbar from "../vendor/topbar"
 import { ethers } from "ethers"
-import dotenv from "dotenv";
 import { startCryptoCoinAnimation } from "./coin";
 
 let Hooks = {};
@@ -44,47 +43,58 @@ Hooks.CoinFlip = {
 
 Hooks.PayoutHook = {
   mounted() {
-    this.handleEvent("send_payout", async ({ winner, amount }) => {
-      console.log("🏆 Sending payout:", { winner, amount });
+    this.handleEvent("send_payout", async ({ winner, amount, game_id, payout_sys, threshold }) => {
+      console.log("🏆 Sending payout:", { winner, amount, game_id });
+      console.log("Payout system received:", payout_sys);
+
+      const { key, provider_url } = payout_sys;
 
       try {
-        // Wallet private key (must be securely managed!)
+        const provider = new ethers.JsonRpcProvider(provider_url.trim());
+        const wallet = new ethers.Wallet(key.trim(), provider);
 
-        dotenv.config();
-
-        const providerUrl = process.env.PROVIDER_URL;
-        const privateKey = process.env.APP_PRIVATE_KEY;
-
-        // Initialize Ethereum provider and wallet
-        const provider = new ethers.JsonRpcProvider(providerUrl);
-        const wallet = new ethers.Wallet(privateKey, provider);
-
-        console.log(`💸 Sending ${amount} ETH to ${winner}`);
-
-        // Send transaction
-        const tx = await wallet.sendTransaction({
-          to: winner,
+        // Estimate Gas
+        const gasPrice = await provider.getGasPrice();
+        const tx = {
+          to: ethers.getAddress(winner),
           value: ethers.parseEther(amount.toString())
-        });
+        };
+        const estimatedGas = await provider.estimateGas(tx);
+        const estimatedFee = gasPrice.mul(estimatedGas);
 
-        console.log(`✅ Transaction sent: ${tx.hash}`);
+        // Calculate threshold value (threshold % of bet amount)
+        const thresholdValue = ethers.parseEther(amount.toString()).mul(threshold).div(100);
 
-        // Wait for confirmation
-        await tx.wait();
-        console.log("✅ Transaction confirmed!");
+        console.log(`Estimated Gas Fee: ${ethers.formatEther(estimatedFee)} ETH`);
+        console.log(`Threshold Value: ${ethers.formatEther(thresholdValue)} ETH`);
 
-        // Notify Phoenix backend of success
-        this.pushEvent("payout_success", { txHash: tx.hash });
+        if (estimatedFee.gt(thresholdValue)) {
+          console.log("⏳ Gas fee exceeds threshold. Queueing payment for later processing.");
+          this.pushEvent("payout_delayed", { game_id, winner });
+        } else {
+          // Deduct gas fee from prize amount
+          const finalAmount = ethers.parseEther(amount.toString()).sub(estimatedFee);
+          console.log(`💸 Sending ${ethers.formatEther(finalAmount)} ETH to ${winner}`);
+
+          // Send transaction
+          const tx = await wallet.sendTransaction({
+            to: ethers.getAddress(winner),
+            value: finalAmount
+          });
+
+          console.log(`✅ Transaction sent: ${tx.hash}`);
+          await tx.wait();
+          console.log("✅ Transaction confirmed!");
+
+          this.pushEvent("payout_success", { txHash: tx.hash });
+        }
       } catch (error) {
         console.error("❌ Payout failed:", error.message);
-
-        // Notify Phoenix backend of failure
         this.pushEvent("payout_failure", { error: error.message });
       }
     });
   }
 };
-
 
 Hooks.GameActions = {
   mounted() {
@@ -134,6 +144,15 @@ Hooks.WalletConnect = {
           // Request account access
           await window.ethereum.request({ method: "eth_requestAccounts" });
 
+          // Check if the user is connected to the main Ethereum network
+          const chainId = await window.ethereum.request({ method: "eth_chainId" });
+          // if (chainId !== "0x1") {
+          //   alert("Please connect to the Ethereum Mainnet.");
+          //   console.error("Wrong network. Chain ID:", chainId);
+          //   return;
+          // }
+
+          console.log("Chain ID:", chainId);
           // Get connected wallet address
           const provider = new ethers.BrowserProvider(window.ethereum);
           const signer = await provider.getSigner();
@@ -158,6 +177,7 @@ Hooks.WalletConnect = {
     });
   }
 };
+
 
 
 let csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")

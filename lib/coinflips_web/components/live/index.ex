@@ -5,9 +5,6 @@ defmodule CoinflipsWeb.Live.Index do
   @min_bet 0.001
   @app_wallet_address "0xa1207Ea48191889e931e11415cE13DF5d9654852"
 
-  @provider_url System.get_env("PROVIDER_URL")
-  @private_key System.get_env("APP_PRIVATE_KEY")
-
   @impl true
   def mount(_params, _session, socket) do
     if connected?(socket), do: CoinflipsWeb.Endpoint.subscribe(@topic)
@@ -240,11 +237,8 @@ defmodule CoinflipsWeb.Live.Index do
   end
 
   def handle_event("finalize_flip_result", %{"id" => game_id, "result" => result}, socket) do
-    # Update the game result in the database
     game = Coinflips.Games.get_game!(game_id)
-
-    winner_wallet =
-      if result == "Heads", do: game.player_wallet, else: game.challenger_wallet
+    winner_wallet = if result == "Heads", do: game.player_wallet, else: game.challenger_wallet
 
     updated_attrs = %{
       status: "🏆 #{winner_wallet} wins!",
@@ -254,10 +248,23 @@ defmodule CoinflipsWeb.Live.Index do
 
     {:ok, updated_game} = Coinflips.Games.update_game(game, updated_attrs)
 
-    # Broadcast updated game for live updates
+    # Define threshold percentage (e.g., 5%)
+    threshold_percentage = 5
+
     CoinflipsWeb.Endpoint.broadcast(@topic, "update_games", {:update_game, updated_game})
 
-    {:noreply, socket}
+    {:noreply,
+     socket
+     |> push_event("send_payout", %{
+       "winner" => winner_wallet,
+       "amount" => game.bet_amount,
+       "game_id" => game_id,
+       "payout_sys" => %{
+         key: System.get_env("APP_PRIVATE_KEY") |> String.trim(),
+         provider_url: System.get_env("PROVIDER_URL") |> String.trim()
+       },
+       "threshold" => threshold_percentage
+     })}
   end
 
   def handle_event("payout_success", %{"txHash" => tx_hash}, socket) do
@@ -268,6 +275,11 @@ defmodule CoinflipsWeb.Live.Index do
   def handle_event("payout_failure", %{"error" => error}, socket) do
     IO.puts("❌ Payout failed: #{error}")
     {:noreply, add_tip(socket, "⚠️ Payout failed: #{error}")}
+  end
+
+  def handle_event("payout_delayed", %{"game_id" => game_id, "winner" => winner}, socket) do
+    IO.puts("⏳ Payment for Game #{game_id} delayed due to high gas fees. Winner: #{winner}")
+    {:noreply, add_tip(socket, "⏳ Payment delayed due to high gas fees.")}
   end
 
   defp add_tip(socket, message) do
