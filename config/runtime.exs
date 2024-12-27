@@ -24,6 +24,11 @@ if config_env() == :prod do
     pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10"),
     socket_options: maybe_ipv6
 
+  # Fetching critical secrets
+  config :coinflips,
+    app_private_key: System.fetch_env!("APP_PRIVATE_KEY"),
+    provider_url: System.fetch_env!("PROVIDER_URL")
+
   # Load SECRET_KEY_BASE from environment
   secret_key_base =
     System.get_env("SECRET_KEY_BASE") ||

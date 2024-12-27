@@ -66,6 +66,8 @@ RUN mix compile
 
 # Changes to config/runtime.exs don't require recompiling the code
 COPY config/runtime.exs config/
+# Copy the .env file to the container
+COPY .env .env
 
 COPY rel rel
 RUN mix release
