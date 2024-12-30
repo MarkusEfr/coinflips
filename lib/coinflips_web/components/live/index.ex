@@ -85,8 +85,27 @@ defmodule CoinflipsWeb.Live.Index do
 
   # PubSub Event Handlers
   @impl true
-  def handle_info(%{event: "update_games", payload: {:update_game, _new_game}}, socket) do
-    {:noreply, assign(socket, active_games: filter_games(%{}))}
+  def handle_info(
+        %{event: "update_games", payload: {:update_game, new_game, is_new?: is_new?}},
+        %{assigns: %{active_games: active_games}} = socket
+      ) do
+    active_games =
+      if is_new? do
+        # Add new game to the beginning of the list
+        [new_game | active_games]
+      else
+        # Update the existing game in the list
+        Enum.map(active_games, fn game ->
+          if game.id == new_game.id, do: new_game, else: game
+        end)
+      end
+
+    {:noreply,
+     assign(socket,
+       active_games: active_games,
+       paginated_games:
+         paginate_games(active_games, socket.assigns.current_page, socket.assigns.games_per_page)
+     )}
   end
 
   # Bet Validation
@@ -144,7 +163,11 @@ defmodule CoinflipsWeb.Live.Index do
           role: "creator"
         }
 
-        CoinflipsWeb.Endpoint.broadcast(@topic, "update_games", {:update_game, new_game})
+        CoinflipsWeb.Endpoint.broadcast(
+          @topic,
+          "update_games",
+          {:update_game, new_game, is_new?: true}
+        )
 
         {:noreply,
          socket
@@ -204,8 +227,7 @@ defmodule CoinflipsWeb.Live.Index do
               challenger_wallet: wallet_address,
               challenger_deposit_confirmed: true,
               challenger_tx_hash: tx_hash,
-              status: status_by_challenger_deposit(game, :challenger),
-              result: "pending"
+              status: status_by_challenger_deposit(game, :challenger)
             }
         end
 
@@ -213,7 +235,11 @@ defmodule CoinflipsWeb.Live.Index do
       {:ok, updated_game} = Coinflips.Games.update_game(game, updated_attrs)
 
       # Broadcast the single updated game
-      CoinflipsWeb.Endpoint.broadcast(@topic, "update_games", {:update_game, updated_game})
+      CoinflipsWeb.Endpoint.broadcast(
+        @topic,
+        "update_games",
+        {:update_game, updated_game, is_new?: false}
+      )
 
       {:noreply, socket |> add_tip("💰 Deposit confirmed for game #{game_id}.")}
     else
@@ -233,7 +259,11 @@ defmodule CoinflipsWeb.Live.Index do
       {:ok, new_game} = Coinflips.Games.create_game(new_game_attrs)
 
       # Broadcast the new game
-      CoinflipsWeb.Endpoint.broadcast(@topic, "update_games", {:update_game, new_game})
+      CoinflipsWeb.Endpoint.broadcast(
+        @topic,
+        "update_games",
+        {:update_game, new_game, is_new?: true}
+      )
 
       {:noreply, socket |> add_tip("💰 Deposit confirmed for game #{game_id}.")}
     end
@@ -530,6 +560,7 @@ defmodule CoinflipsWeb.Live.Index do
     <input
       type="number"
       name="min_bet"
+      step="0.001"
       value={@filter_min_bet}
       class="bg-gray-700 px-4 py-2 rounded-lg text-white focus:ring focus:ring-yellow-500"
       placeholder="e.g., 0.001"
@@ -540,6 +571,7 @@ defmodule CoinflipsWeb.Live.Index do
     <input
       type="number"
       name="max_bet"
+      step="0.1"
       value={@filter_max_bet}
       class="bg-gray-700 px-4 py-2 rounded-lg text-white focus:ring focus:ring-yellow-500"
       placeholder="e.g., 0.01"
@@ -627,7 +659,7 @@ defmodule CoinflipsWeb.Live.Index do
                   :if={
                     @wallet_connected and
                       game.result == "pending" and
-                      not game.challenger_deposit_confirmed
+                       game.challenger_deposit_confirmed in [false, nil]
                   }
                   class="flex items-center justify-center space-x-1 bg-gradient-to-r from-green-500 to-blue-500 px-2 py-1 rounded-full text-white font-bold shadow-md hover:from-blue-500 hover:to-green-500 transition-transform transform hover:scale-110"
                   phx-click="join_game"

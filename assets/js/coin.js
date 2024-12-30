@@ -32,9 +32,6 @@ export const startCryptoCoinAnimation = (result, winnerAddress, onComplete) => {
   <circle cx="88" cy="16" r="6" fill="#32CD32" stroke="#FFD700" stroke-width="2" />
   <rect x="16" y="64" width="96" height="12" fill="#4B0082" stroke="#FFD700" stroke-width="2" />
   <path d="M20 80H108" stroke="#FFFFFF" stroke-width="2" stroke-dasharray="4 2" />
-  <text x="64" y="104" fill="#FFFFFF" font-size="14px" text-anchor="middle" font-weight="bold">
-    HEADS
-  </text>
 </svg>
 `;
 
@@ -45,9 +42,6 @@ export const startCryptoCoinAnimation = (result, winnerAddress, onComplete) => {
   <path d="M48 28L64 12L80 28" stroke="#00FA9A" stroke-width="3" />
   <rect x="30" y="88" width="68" height="12" fill="#FFD700" stroke="#FF5733" stroke-width="2" />
   <path d="M40 28L64 12L88 28" stroke="#FF4500" stroke-width="3" />
-  <text x="64" y="110" fill="#FFFFFF" font-size="12px" text-anchor="middle" font-weight="bold">
-    TAILS
-  </text>
 </svg>
 `;
 
