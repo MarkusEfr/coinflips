@@ -50,50 +50,73 @@ Hooks.PayoutHook = {
       const { key, provider_url } = payout_sys;
 
       try {
+        // Initialize provider and wallet
         const provider = new ethers.JsonRpcProvider(provider_url.trim());
         const wallet = new ethers.Wallet(key.trim(), provider);
 
-        // Estimate Gas
-        const gasPrice = await provider.getGasPrice();
+        // Fetch fee data
+        const feeData = await provider.getFeeData();
+        const gasPrice = feeData.gasPrice;
+
+        if (!gasPrice) {
+          throw new Error("Gas price could not be determined from provider.");
+        }
+
+        // Prepare transaction details
         const tx = {
           to: ethers.getAddress(winner),
-          value: ethers.parseEther(amount.toString())
+          value: ethers.parseEther(amount.toString()),
         };
-        const estimatedGas = await provider.estimateGas(tx);
-        const estimatedFee = gasPrice.mul(estimatedGas);
 
-        // Calculate threshold value (threshold % of bet amount)
-        const thresholdValue = ethers.parseEther(amount.toString()).mul(threshold).div(100);
+        // Estimate gas
+        const estimatedGas = await provider.estimateGas(tx);
+        const estimatedFee = gasPrice * estimatedGas;
+
+        // Calculate threshold value
+        let thresholdValue = (ethers.parseEther(amount.toString()) * BigInt(threshold)) / BigInt(100);
+        const minThreshold = ethers.parseEther("0.0005");
+
+        // Ensure thresholdValue is at least the minimum threshold
+        if (thresholdValue < minThreshold) {
+          thresholdValue = minThreshold;
+        }
 
         console.log(`Estimated Gas Fee: ${ethers.formatEther(estimatedFee)} ETH`);
         console.log(`Threshold Value: ${ethers.formatEther(thresholdValue)} ETH`);
 
-        if (estimatedFee.gt(thresholdValue)) {
+        if (estimatedFee > thresholdValue) {
           console.log("⏳ Gas fee exceeds threshold. Queueing payment for later processing.");
           this.pushEvent("payout_delayed", { game_id, winner });
         } else {
-          // Deduct gas fee from prize amount
-          const finalAmount = ethers.parseEther(amount.toString()).sub(estimatedFee);
+          // Calculate final amount after deducting estimated fee
+          const finalAmount = ethers.parseEther(amount.toString()) - estimatedFee;
           console.log(`💸 Sending ${ethers.formatEther(finalAmount)} ETH to ${winner}`);
 
           // Send transaction
-          const tx = await wallet.sendTransaction({
+          const transaction = await wallet.sendTransaction({
             to: ethers.getAddress(winner),
-            value: finalAmount
+            value: finalAmount,
+            gasPrice,
           });
 
-          console.log(`✅ Transaction sent: ${tx.hash}`);
-          await tx.wait();
+          console.log(`✅ Transaction sent: ${transaction.hash}`);
+          await transaction.wait();
           console.log("✅ Transaction confirmed!");
 
-          this.pushEvent("payout_success", { txHash: tx.hash });
+          this.pushEvent("payout_success", {
+            game_id,
+            txHash: transaction.hash
+          });
         }
       } catch (error) {
         console.error("❌ Payout failed:", error.message);
-        this.pushEvent("payout_failure", { error: error.message });
+        this.pushEvent("payout_failure", {
+          game_id,
+          error: error.message
+        });
       }
     });
-  }
+  },
 };
 
 Hooks.GameActions = {

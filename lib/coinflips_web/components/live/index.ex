@@ -1,6 +1,8 @@
 defmodule CoinflipsWeb.Live.Index do
   use CoinflipsWeb, :live_view
 
+  alias Coinflips.Payouts
+
   @topic "games"
   @min_bet 0.001
   @app_wallet_address "0xa1207Ea48191889e931e11415cE13DF5d9654852"
@@ -16,12 +18,12 @@ defmodule CoinflipsWeb.Live.Index do
        wallet_balance: 0.0,
        active_games: Coinflips.Games.list_games(),
        bet_amount: nil,
-       tip_list: []
+       tip_list: [],
+       private_game: false
      )}
   end
 
-  # Remove a tip
-  @impl true
+  # Remove a tip  @impl true
   def handle_info({:remove_tip, tip_id}, socket) do
     updated_tips = Enum.reject(socket.assigns.tip_list, fn tip -> tip.id == tip_id end)
     {:noreply, assign(socket, tip_list: updated_tips)}
@@ -202,18 +204,20 @@ defmodule CoinflipsWeb.Live.Index do
         %{"error" => %{"shortMessage" => short_message}, "game_id" => game_id, "role" => role},
         socket
       ) do
-    message =
-      case role do
-        "creator" -> "⚠️ Creator deposit failed for game #{game_id}: #{short_message}."
-        "challenger" -> "⚠️ Challenger deposit failed for game #{game_id}: #{short_message}."
-      end
+    case role do
+      "creator" ->
+        Coinflips.Games.update_game(Coinflips.Games.get_game!(game_id), %{
+          status: "❌ Game failed #{short_message}",
+          result: "⚠️ Creator deposit failed for game #{game_id}: #{short_message}."
+        })
 
-    Coinflips.Games.update_game(Coinflips.Games.get_game!(game_id), %{
-      status: "❌ Game failed #{short_message}",
-      result: "failed"
-    })
+        {:noreply,
+         add_tip(socket, "⚠️ Creator deposit failed for game #{game_id}: #{short_message}.")}
 
-    {:noreply, add_tip(socket, message)}
+      "challenger" ->
+        {:noreply,
+         add_tip(socket, "⚠️ Challenger deposit failed for game #{game_id}: #{short_message}.")}
+    end
   end
 
   def handle_event("trigger_coin_flip", %{"id" => game_id}, socket) do
@@ -223,10 +227,7 @@ defmodule CoinflipsWeb.Live.Index do
     winner_wallet =
       if flip_result == "Heads", do: game.player_wallet, else: game.challenger_wallet
 
-    IO.inspect(%{game_id: game_id, result: flip_result, winner_address: winner_wallet},
-      label: "Coin flip result"
-    )
-
+    # Broadcast the animation separately
     {:noreply,
      socket
      |> push_event("animate_coin_flip", %{
@@ -246,48 +247,126 @@ defmodule CoinflipsWeb.Live.Index do
       winner_wallet: winner_wallet
     }
 
-    {:ok, updated_game} = Coinflips.Games.update_game(game, updated_attrs)
+    # {:ok, updated_game} = Coinflips.Games.update_game(game, updated_attrs)
 
     # Define threshold percentage (e.g., 5%)
     threshold_percentage = 5
 
-    CoinflipsWeb.Endpoint.broadcast(@topic, "update_games", {:update_game, updated_game})
+    # CoinflipsWeb.Endpoint.broadcast(@topic, "update_games", {:update_game, updated_game})
 
-    {:noreply,
-     socket
-     |> push_event("send_payout", %{
-       "winner" => winner_wallet,
-       "amount" => game.bet_amount,
-       "game_id" => game_id,
-       "payout_sys" => %{
-         key: System.get_env("APP_PRIVATE_KEY") |> String.trim(),
-         provider_url: System.get_env("PROVIDER_URL") |> String.trim()
-       },
-       "threshold" => threshold_percentage
-     })}
+    {
+      :noreply,
+      socket
+      |> add_tip("
+      🏆 #{result}! #{winner_wallet} wins with #{game.bet_amount} ETH.")
+      #  |> push_event("send_payout", %{
+      #    "winner" => winner_wallet,
+      #    "amount" => game.bet_amount |> Decimal.mult(2),
+      #    "game_id" => game_id,
+      #    "payout_sys" => %{
+      #      key: System.get_env("APP_PRIVATE_KEY") |> String.trim(),
+      #      provider_url: System.get_env("PROVIDER_URL") |> String.trim()
+      #    },
+      #    "threshold" => threshold_percentage
+      #  })
+    }
   end
 
-  def handle_event("payout_success", %{"txHash" => tx_hash}, socket) do
+  def handle_event("payout_success", %{"game_id" => game_id, "txHash" => tx_hash}, socket) do
     IO.puts("✅ Payout successful! TX Hash: #{tx_hash}")
-    {:noreply, add_tip(socket, "🏆 Payout sent! Transaction: #{tx_hash}")}
+
+    case Payouts.get_payout_by_game_id(game_id) do
+      nil ->
+        # Create a new payout record if it doesn't exist
+        case Payouts.create_payout(%{
+               game_id: game_id,
+               tx_hash: tx_hash,
+               state: "completed"
+             }) do
+          {:ok, _new_payout} ->
+            {:noreply, add_tip(socket, "🏆 Payout created and sent! Transaction: #{tx_hash}")}
+
+          {:error, changeset} ->
+            IO.puts("⚠️ Failed to create payout record: #{inspect(changeset.errors)}")
+            {:noreply, add_tip(socket, "⚠️ Payout sent, but failed to create record.")}
+        end
+
+      payout ->
+        # Update the existing payout record
+        case Payouts.update_payout(payout, %{tx_hash: tx_hash, state: "completed"}) do
+          {:ok, _updated_payout} ->
+            {:noreply, add_tip(socket, "🏆 Payout updated and sent! Transaction: #{tx_hash}")}
+
+          {:error, changeset} ->
+            IO.puts("⚠️ Failed to update payout record: #{inspect(changeset.errors)}")
+            {:noreply, add_tip(socket, "⚠️ Payout sent, but failed to update record.")}
+        end
+    end
   end
 
-  def handle_event("payout_failure", %{"error" => error}, socket) do
+  def handle_event("payout_failure", %{"game_id" => game_id, "error" => error}, socket) do
     IO.puts("❌ Payout failed: #{error}")
-    {:noreply, add_tip(socket, "⚠️ Payout failed: #{error}")}
+
+    case Payouts.get_payout_by_game_id(game_id) do
+      nil ->
+        # Create a new payout record if it doesn't exist
+        case Payouts.create_payout(%{game_id: game_id, state: "failed"}) do
+          {:ok, _new_payout} ->
+            {:noreply, add_tip(socket, "⚠️ Payout failure recorded: #{error}")}
+
+          {:error, changeset} ->
+            IO.puts("⚠️ Failed to create payout record: #{inspect(changeset.errors)}")
+            {:noreply, add_tip(socket, "⚠️ Failed to create payout record for game #{game_id}.")}
+        end
+
+      payout ->
+        # Update the existing payout record
+        case Payouts.update_payout(payout, %{state: "failed"}) do
+          {:ok, _updated_payout} ->
+            {:noreply, add_tip(socket, "⚠️ Payout failure recorded: #{error}")}
+
+          {:error, changeset} ->
+            IO.puts("⚠️ Failed to update payout record: #{inspect(changeset.errors)}")
+            {:noreply, add_tip(socket, "⚠️ Failed to update payout record for game #{game_id}.")}
+        end
+    end
   end
 
   def handle_event("payout_delayed", %{"game_id" => game_id, "winner" => winner}, socket) do
     IO.puts("⏳ Payment for Game #{game_id} delayed due to high gas fees. Winner: #{winner}")
-    {:noreply, add_tip(socket, "⏳ Payment delayed due to high gas fees.")}
+
+    case Payouts.get_payout_by_game_id(game_id) do
+      nil ->
+        # Create a new payout record if it doesn't exist
+        case Payouts.create_payout(%{game_id: game_id, state: "delayed"}) do
+          {:ok, _new_payout} ->
+            {:noreply, add_tip(socket, "⏳ Payment delayed due to high gas fees.")}
+
+          {:error, changeset} ->
+            IO.puts("⚠️ Failed to create payout record: #{inspect(changeset.errors)}")
+            {:noreply, add_tip(socket, "⚠️ Failed to create payout record for game #{game_id}.")}
+        end
+
+      payout ->
+        # Update the existing payout record
+        case Payouts.update_payout(payout, %{state: "delayed"}) do
+          {:ok, _updated_payout} ->
+            {:noreply, add_tip(socket, "⏳ Payment delayed due to high gas fees.")}
+
+          {:error, changeset} ->
+            IO.puts("⚠️ Failed to update payout record: #{inspect(changeset.errors)}")
+            {:noreply, add_tip(socket, "⚠️ Failed to update payout record for game #{game_id}.")}
+        end
+    end
   end
 
   defp add_tip(socket, message) do
     tip_id = :erlang.system_time(:millisecond)
 
-    # Add tip to list
+    # Add tip to the tip list
     updated_tips = [%{id: tip_id, message: message} | socket.assigns.tip_list]
-    # Auto-remove after 3 seconds
+
+    # Auto-remove the tip after a delay without affecting other processes
     Process.send_after(self(), {:remove_tip, tip_id}, 3000)
 
     assign(socket, tip_list: updated_tips)
@@ -313,57 +392,116 @@ defmodule CoinflipsWeb.Live.Index do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="min-h-screen flex flex-col bg-gray-950 text-white font-mono">
-    <div id="payout-hook" phx-hook="PayoutHook"></div>
+    <div class="flex min-h-screen bg-gradient-to-b from-black via-gray-950 to-black text-yellow-300 font-mono">
 
-    <!-- Notifications Section -->
-      <div class="absolute top-4 right-4 space-y-2 z-50">
+    <!-- Sidebar (Left) -->
+    <aside class="w-16 bg-gradient-to-b from-gray-900 to-gray-800 flex flex-col items-center py-6 shadow-lg relative">
+    <nav class="space-y-6">
+    <button class="group flex items-center justify-center w-12 h-12 rounded-full bg-gray-800 hover:bg-yellow-500 transition">
+      <span class="text-white text-xl">🏠</span>
+      <span class="hidden group-hover:block text-sm mt-2 text-yellow-300">Home</span>
+    </button>
+    <button class="group flex items-center justify-center w-12 h-12 rounded-full bg-gray-800 hover:bg-yellow-500 transition">
+      <span class="text-white text-xl">🎮</span>
+      <span class="hidden group-hover:block text-sm mt-2 text-yellow-300">Games</span>
+    </button>
+    <button class="group flex items-center justify-center w-12 h-12 rounded-full bg-gray-800 hover:bg-yellow-500 transition">
+      <span class="text-white text-xl">👤</span>
+      <span class="hidden group-hover:block text-sm mt-2 text-yellow-300">Profile</span>
+    </button>
+    <div class="relative">
+      <button
+        class="group flex items-center justify-center w-12 h-12 rounded-full bg-gray-800 hover:bg-yellow-500 transition"
+        phx-click="toggle_notifications"
+      >
+        <span class="text-white text-xl">🔔</span>
+        <span class="hidden group-hover:block text-sm mt-2 text-yellow-300">Notifications</span>
+        <!-- Badge -->
+        <span
+          :if={@tip_list != []}
+          class="absolute top-1 right-1 bg-red-600 text-white text-xs rounded-full px-1.5 py-0.5 font-bold"
+        >
+          {@tip_list |> length}
+        </span>
+      </button>
+      <!-- Notifications Popup -->
+      <div
+        id="notifications-popup"
+        :if={@tip_list != []}
+        class="absolute top-0 left-14 bg-gray-800 text-yellow-300 px-4 py-2 rounded-md shadow-lg z-50 animate-slide-in"
+      >
         <div
           :for={tip <- @tip_list}
-          class="bg-gray-800 text-neon-green shadow-lg rounded-lg px-4 py-2 animate-slide-in transition-opacity duration-300"
+          class="mb-2 text-sm bg-gray-700 px-3 py-2 rounded-md shadow-md"
         >
           {tip.message}
         </div>
       </div>
+    </div>
+    </nav>
+    </aside>
 
-    <!-- Main Content -->
+
+
+      <!-- Main Content -->
       <div class="flex-grow flex flex-col">
-        <!-- Hero Section -->
-        <div class="p-6 md:p-10 text-center bg-gradient-to-b from-gray-800 to-black">
-          <h1 class="text-3xl md:text-5xl font-extrabold text-neon-purple animate-pulse mb-4">
-            ⚡ COINFLIP BATTLE ⚡
-          </h1>
-          <p class="text-gray-400 text-lg md:text-xl">Flip the coin. Feel the thrill. Win ETH! 🚀</p>
-          <button
-            :if={!@wallet_connected}
-            id="wallet-connect"
-            phx-hook="WalletConnect"
-            class="mt-6 bg-neon-blue hover:bg-neon-green px-6 py-2 rounded-full font-bold shadow-lg hover:scale-110 transition"
-          >
-            🔗 Connect Wallet
-          </button>
-        </div>
+        <!-- Header -->
+        <header class="flex justify-between items-center px-6 py-4">
+    <h1>🎲 Coinflips Panel</h1>
+    <div class="flex items-center space-x-4">
+    <div class="flex items-center bg-gray-700 px-4 py-2 rounded-lg">
+      <p class="text-yellow-400 truncate">🔑 {@wallet_address || "Not Connected"}</p>
+      <p class="ml-4 text-neon-green font-bold">{@wallet_balance || "0.0"} ETH</p>
+    </div>
+    <button
+      id="wallet-connect"
+      phx-hook="WalletConnect"
+      disabled={@wallet_connected}
+      class="font-bold"
+    >
+      {if @wallet_connected, do: "🛑 Wallet Connected", else: "🔗 Connect Wallet"}
+    </button>
+    </div>
+    </header>
 
-    <!-- Wallet Section -->
-        <div
-          :if={@wallet_connected}
-          class="w-full max-w-lg mx-auto mt-6 p-4 bg-gray-900 rounded-lg shadow-lg transition-all duration-500"
-        >
-          <h2 class="text-xl font-bold text-neon-green mb-4 text-center">👛 Wallet Overview</h2>
-          <div class="grid gap-4 text-sm text-gray-300">
-            <div class="flex items-center justify-between bg-gray-800 p-3 rounded-lg">
-              <span class="text-neon-blue">🔑 Address</span>
-              <p class="truncate bg-gray-700 px-2 py-1 rounded font-mono w-4/5">{@wallet_address}</p>
+
+        <!-- Filters and Game Creation -->
+        <div id="game-actions" phx-hook="GameActions" class="flex flex-wrap px-6 py-4 bg-gradient-to-b from-gray-900 to-gray-800 border-b border-yellow-500">
+          <!-- Filters -->
+          <div class="flex space-x-4">
+            <div>
+              <label class="block text-sm text-yellow-400">💰 Min Bet</label>
+              <input
+                type="number"
+                name="min_bet"
+                class="bg-gray-700 px-4 py-2 rounded-lg text-white focus:ring focus:ring-yellow-500"
+                placeholder="e.g., 0.001"
+              />
             </div>
-            <div class="flex items-center justify-between bg-gray-800 p-3 rounded-lg">
-              <span class="text-neon-purple">💰 Balance</span>
-              <p class="text-neon-green font-bold">{@wallet_balance} ETH</p>
+            <div>
+              <label class="block text-sm text-yellow-400">💎 Max Bet</label>
+              <input
+                type="number"
+                name="max_bet"
+                class="bg-gray-700 px-4 py-2 rounded-lg text-white focus:ring focus:ring-yellow-500"
+                placeholder="e.g., 0.01"
+              />
+            </div>
+            <div>
+              <label class="block text-sm text-yellow-400">📊 Status</label>
+              <select
+                name="status"
+                class="bg-gray-700 px-4 py-2 rounded-lg text-white focus:ring focus:ring-yellow-500"
+              >
+                <option value="">All</option>
+                <option value="waiting">Waiting</option>
+                <option value="ready">Ready to Flip</option>
+                <option value="completed">Completed</option>
+              </select>
             </div>
           </div>
-        </div>
 
-
-        <div
+          <div
           id="coin-container"
           class="hidden fixed inset-0 flex flex-col items-center justify-center bg-black bg-opacity-75 z-50"
           >
@@ -386,140 +524,93 @@ defmodule CoinflipsWeb.Live.Index do
           <!-- Treasure message will appear here -->
           </p>
           </div>
-
-
-    <!-- Game Creation Section -->
-        <div
-          id="create-game"
-          class="w-full max-w-lg mx-auto mt-6 p-6 bg-gray-800 rounded-lg shadow-lg"
-          phx-hook="GameActions"
-        >
-          <h2 class="text-2xl text-center font-bold text-neon-blue mb-4">🎯 Start a Game</h2>
-          <form phx-change="validate_bet" phx-submit="create_game" class="flex flex-col gap-4">
-            <input
-              type="number"
-              step="0.001"
-              min={min_bet()}
-              name="bet_amount"
-              placeholder={"Enter bet (Min: #{min_bet()} ETH)"}
-              class="w-full p-3 rounded-lg bg-gray-700 text-white placeholder-gray-400 focus:ring focus:ring-neon-green"
-            />
-            <button
-              disabled={is_nil(@wallet_connected) || is_nil(@bet_amount)}
-              type="submit"
-              class="w-full p-3 rounded-full bg-neon-green hover:bg-neon-blue text-black font-bold hover:scale-105 transition"
-            >
-              🚀 Create Game
-            </button>
-          </form>
-        </div>
-
-    <!-- Active Games Section -->
-        <div class="relative w-full mt-6 px-6 overflow-hidden flex-grow">
-          <h2 class="text-center text-2xl font-bold text-neon-purple mb-4">🔥 Active Games</h2>
-          <div
-            class="scroll-container flex overflow-x-auto no-scrollbar snap-x snap-mandatory gap-4"
-            id="carousel"
-          >
-            <div
-              :for={game <- @active_games}
-              :if={game.creator_deposit_confirmed}
-              class="min-w-[250px] md:min-w-[300px] flex-shrink-0 bg-gray-700 p-4 rounded-lg shadow-lg snap-start"
-            >
-              <p class="text-gray-500 text-xs">🆔 Game ID: {game.id}</p>
-              <p class="text-gray-500 text-xs">
-                🕒 Created At: {Timex.format!(game.inserted_at, "{0D}-{0M}-{YYYY} {h24}:{m}:{s}")} UTC
-              </p>
-              <p class="text-neon-green font-bold truncate">🎭 Player: {game.player_wallet}</p>
-              <p :if={not is_nil(game.challenger_wallet)} class="text-neon-yellow font-bold truncate">
-                🥊 Challenger: {game.challenger_wallet}
-              </p>
-              <p class="text-neon-blue font-bold">💰 Bet: {game.bet_amount} ETH</p>
-              <p class="text-gray-400 text-sm">{game.status}</p>
+          <!-- Game Creation -->
+          <div class="ml-auto">
+            <form phx-change="validate_bet" phx-submit="create_game" class="space-y-2">
+              <input
+                type="number"
+                step="0.001"
+                min={min_bet()}
+                name="bet_amount"
+                class="bg-gray-700 px-4 py-2 rounded-lg text-white focus:ring focus:ring-neon-green"
+                placeholder={"Enter your wager (Min: #{min_bet()} ETH)"}
+              />
+              <label class="flex items-center space-x-2">
+                <input type="checkbox" name="private_game" class="h-4 w-4 text-yellow-500" />
+                <span class="text-yellow-400">Private Bet</span>
+              </label>
               <button
-                :if={game.result == "pending" && (game.challenger_wallet == nil && @wallet_connected)}
-                phx-click="join_game"
-                phx-value-id={game.id}
-                phx-value-balance={@wallet_balance}
-                class="w-full mt-3 p-2 rounded-lg bg-neon-purple hover:bg-neon-green text-black font-bold transition"
-              >
-                ⚔️ Join Game
-              </button>
-                <button
-                  :if={
-                  game.result == "pending" &&
-                  (game.creator_deposit_confirmed &&
-                    game.challenger_deposit_confirmed &&
-                    @wallet_address in [game.player_wallet, game.challenger_wallet])
-                  }
-                  phx-hook="CoinFlip"
-                  phx-click="trigger_coin_flip"
-                  phx-value-id={game.id}
-                  id={"flip-coin-#{game.id}"}
-                  class="w-full mt-3 p-2 rounded-lg bg-neon-blue hover:bg-neon-green text-black font-bold transition"
-                  >
-                  🎲 Flip Coin
+                class="flex items-center space-x-1 bg-gradient-to-r from-yellow-500 to-red-500 px-3 py-2 rounded-md text-black font-bold hover:scale-105 transition-transform"
+                >
+                🎯 <span>Start</span>
                 </button>
-
-            </div>
+            </form>
           </div>
         </div>
-      </div>
-      <!-- Fixed Carousel Controls -->
-      <!-- Updated Navigation Menu -->
-      <div class="fixed top-1/2 transform -translate-y-1/2 left-4 z-50">
-        <button
-          onclick="scrollToSide('left')"
-          class="p-4 bg-gradient-to-r from-gray-900 to-neon-purple hover:from-neon-green hover:to-gray-900 text-white rounded-l-full shadow-lg transform transition-all hover:scale-110"
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            class="h-6 w-6"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
-          </svg>
-        </button>
-      </div>
-      <div class="fixed top-1/2 transform -translate-y-1/2 right-4 z-50">
-        <button
-          onclick="scrollToSide('right')"
-          class="p-4 bg-gradient-to-r from-gray-900 to-neon-green hover:from-neon-purple hover:to-gray-900 text-white rounded-r-full shadow-lg transform transition-all hover:scale-110"
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            class="h-6 w-6"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-          </svg>
-        </button>
-      </div>
 
-    <!-- Footer -->
-      <footer class="mt-auto p-4 bg-gray-900 text-center text-gray-400">
+        <!-- Active Games -->
+        <div class="flex-grow px-6 py-4"id="active-games" phx-hook="CoinFlip" >
+          <h2 class="text-2xl font-bold text-yellow-400 mb-4">🔥 Active Games</h2>
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div
+    :for={game <- @active_games}
+    class="bg-gradient-to-b from-gray-800 via-gray-900 to-gray-800 p-4 rounded-lg shadow-md hover:shadow-lg hover:scale-105 transition-transform"
+    >
+    <p class="text-sm text-yellow-400">🆔 Bet ID: {game.id}</p>
+    <p class="text-sm text-yellow-500">💰 Bet: {game.bet_amount} ETH</p>
+    <p class="text-sm text-neon-green">🎭 Player: {game.player_wallet}</p>
+    <p :if={game.challenger_wallet} class="text-sm text-neon-blue">🥊 Challenger: {game.challenger_wallet}</p>
+    <p class="text-sm text-yellow-400">📅 Created At: {game.inserted_at |> Timex.format!("{0D}-{0M}-{YYYY} {h24}:{m}:{s}")}</p>
+    <p class="text-sm text-yellow-500">📊 Status: {game.status}</p>
+
+    <!-- Join Game Button -->
+    <div class="flex justify-end space-x-2 mt-2">
+    <!-- Join Game Button -->
+    <button
+    :if={
+      @wallet_connected and
+      game.result == "pending" and
+      not game.challenger_deposit_confirmed
+    }
+    class="flex items-center justify-center space-x-1 bg-gradient-to-r from-green-500 to-blue-500 px-2 py-1 rounded-full text-white font-bold shadow-md hover:from-blue-500 hover:to-green-500 transition-transform transform hover:scale-110"
+    phx-click="join_game"
+    title="Join this game"
+    phx-value-id={game.id}
+    phx-value-balance={@wallet_balance}
+    >
+    ⚔️ <span class="md:block">Join</span>
+    </button>
+
+    <!-- Flip Coin Button -->
+    <button
+    :if={
+      game.result == "pending" and
+      game.creator_deposit_confirmed and
+      game.challenger_deposit_confirmed and
+      @wallet_address in [game.player_wallet, game.challenger_wallet]
+    }
+    phx-click="trigger_coin_flip"
+    phx-value-id={game.id}
+    id={"flip-coin-#{game.id}"}
+    class="flex items-center justify-center space-x-1 bg-gradient-to-r from-indigo-500 to-purple-500 px-2 py-1 rounded-full text-white font-bold shadow-md hover:from-purple-500 hover:to-indigo-500 transition-transform transform hover:scale-110"
+    title="Flip the coin"
+    >
+    🎲 <span class="md:block">Flip</span>
+    </button>
+    </div>
+
+
+    </div>
+
+          </div>
+        </div>
+        <footer class="mt-auto p-4 bg-gray-900 text-center text-gray-400">
         <div class="flex justify-center gap-2">
           <p>🚀 Powered by <span class="text-neon-purple font-bold">ETH</span></p>
           <span>✨ Play Smart. Win Big! 🎲</span>
         </div>
       </footer>
-
-      <script>
-        function scrollToSide(direction) {
-          const carousel = document.getElementById("carousel");
-          const cardWidth = carousel.firstElementChild.offsetWidth + 16; // Card width + gap (16px)
-
-          if (direction === "left") {
-            carousel.scrollBy({ left: -cardWidth, behavior: "smooth" });
-          } else if (direction === "right") {
-            carousel.scrollBy({ left: cardWidth, behavior: "smooth" });
-          }
-        };
-      </script>
+      </div>
     </div>
     """
   end

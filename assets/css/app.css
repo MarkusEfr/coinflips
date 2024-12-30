@@ -28,16 +28,53 @@
     display: none !important;
 }
 
-.coin {
-    width: 150px;
-    height: 150px;
-    border-radius: 50%;
-    background: linear-gradient(135deg, #ffd700, #ffa500);
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    box-shadow: 0 10px 20px rgba(0, 0, 0, 0.5);
-    font-size: 3rem;
-    font-weight: bold;
-    text-transform: uppercase;
+header {
+    background: linear-gradient(to right, #1e3a8a, #1e40af);
+    /* Deep blue gradient */
+    border-bottom: 2px solid #fbbf24;
+    /* Gold border */
+}
+
+header h1 {
+    font-size: 2.5rem;
+    font-weight: 900;
+    background: linear-gradient(90deg, #fbbf24, #34d399);
+    /* Gold to green */
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+header button {
+    font-size: 0.9rem;
+    padding: 0.5rem 1rem;
+    background: linear-gradient(to right, #34d399, #60a5fa);
+    /* Green to blue */
+    color: white;
+    border-radius: 25px;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+    transition: transform 0.2s, background 0.2s;
+}
+
+header button:hover {
+    transform: scale(1.05);
+    background: linear-gradient(to right, #60a5fa, #34d399);
+    /* Reverse colors */
+}
+
+/* Sliding transition for the notifications aside */
+#notifications-popup {
+    animation: slide-in 0.3s ease-out;
+}
+
+/* Animation for sliding in */
+@keyframes slide-in {
+    from {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
 }
