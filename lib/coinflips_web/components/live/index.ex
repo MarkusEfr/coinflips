@@ -324,45 +324,38 @@ defmodule CoinflipsWeb.Live.Index do
           </div>
         </div>
       </div>
+      <div class="fixed bottom-16 left-1/2 transform -translate-x-1/2 flex flex-col items-center space-y-2">
+    <!-- Progress Bar -->
+    <div class="relative w-3/4 h-1 bg-gray-800 rounded-full">
+    <div
+      class="absolute top-0 left-0 h-1 bg-neon-green rounded-full transition-all"
+      style={"width: #{round(@current_page / @total_pages * 100)}%;"}
+    ></div>
+    </div>
+    <!-- Navigation -->
+    <div class="flex items-center space-x-4">
+    <button
+      :if={@current_page > 1}
+      phx-click="change_page"
+      phx-value-page={@current_page - 1}
+      class="w-8 h-8 flex items-center justify-center text-neon-green border border-gray-700 rounded-full hover:bg-gray-800 transition-all"
+    >
+      ◀
+    </button>
+    <p class="text-sm text-gray-400">
+      Page <span class="text-neon-green">{@current_page}</span> of <span class="text-neon-green">{@total_pages}</span>
+    </p>
+    <button
+      :if={@current_page < @total_pages}
+      phx-click="change_page"
+      phx-value-page={@current_page + 1}
+      class="w-8 h-8 flex items-center justify-center text-neon-green border border-gray-700 rounded-full hover:bg-gray-800 transition-all"
+    >
+      ▶
+    </button>
+    </div>
+    </div>
 
-      <!-- Pagination -->
-      <div class="flex justify-center items-center mt-4">
-        <div class="relative w-full max-w-lg h-2 bg-gray-800 rounded-full">
-          <div
-            class="absolute top-0 h-2 bg-neon-blue rounded-full transition-all"
-            style={"width: #{round(@current_page / @total_pages * 100)}%;"}
-          ></div>
-        </div>
-        <div class="ml-4 text-sm text-neon-green">
-          Page {@current_page} of {@total_pages}
-        </div>
-      </div>
-      <div class="flex justify-center mt-4 space-x-2">
-        <button
-          :if={@current_page > 1}
-          phx-click="change_page"
-          phx-value-page={@current_page - 1}
-          class="w-10 h-10 flex items-center justify-center bg-gray-800 rounded-full text-neon-green hover:bg-neon-green hover:text-black"
-        >
-          ◀
-        </button>
-        <button
-          :for={page <- visible_pages(@current_page, @total_pages, 5)}
-          phx-click="change_page"
-          phx-value-page={page}
-          class={"w-10 h-10 flex items-center justify-center rounded-full #{if @current_page == page, do: "bg-neon-cyan text-black", else: "bg-gray-800 text-neon-cyan hover:bg-neon-cyan hover:text-black"}"}
-        >
-          {page}
-        </button>
-        <button
-          :if={@current_page < @total_pages}
-          phx-click="change_page"
-          phx-value-page={@current_page + 1}
-          class="w-10 h-10 flex items-center justify-center bg-gray-800 rounded-full text-neon-green hover:bg-neon-green hover:text-black"
-        >
-          ▶
-        </button>
-      </div>
     </div>
     """
   end
