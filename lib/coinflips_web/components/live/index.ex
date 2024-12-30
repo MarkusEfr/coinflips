@@ -2,7 +2,7 @@ defmodule CoinflipsWeb.Live.Index do
   use CoinflipsWeb, :live_view
 
   alias Coinflips.Payouts
-  import Coinflips.Games, only: [parse_amount: 1]
+  import Coinflips.Games, only: [parse_amount: 1, filter_games: 1]
 
   @topic "games"
   @min_bet 0.001
@@ -12,25 +12,28 @@ defmodule CoinflipsWeb.Live.Index do
   def mount(_params, _session, socket) do
     if connected?(socket), do: CoinflipsWeb.Endpoint.subscribe(@topic)
 
+    default_games =
+      filter_games(%{"status" => ["waiting", "ready", "completed"]})
+
     # Initial pagination settings
     {:ok,
      assign(socket,
        wallet_connected: false,
        wallet_address: nil,
        wallet_balance: 0.0,
-       active_games: Coinflips.Games.list_games(),
-       paginated_games: [],
+       active_games: default_games,
+       paginated_games: default_games |> paginate_games(1, 6),
        current_page: 1,
        # 5-6 games per page
        games_per_page: 6,
-       total_pages: calculate_total_pages(Coinflips.Games.list_games(), 6),
+       total_pages: calculate_total_pages(default_games, 6),
        bet_amount: nil,
        tip_list: [],
        private_game: false,
        show_notifications: false,
        filter_min_bet: nil,
        filter_max_bet: nil,
-       filter_status: ["waiting", "ready"]
+       filter_status: ["waiting", "ready", "completed"]
      )}
   end
 
@@ -83,18 +86,18 @@ defmodule CoinflipsWeb.Live.Index do
   # PubSub Event Handlers
   @impl true
   def handle_info(%{event: "update_games", payload: {:update_game, _new_game}}, socket) do
-    {:noreply, assign(socket, active_games: Coinflips.Games.list_games())}
+    {:noreply, assign(socket, active_games: filter_games(%{}))}
   end
 
   # Bet Validation
-  def handle_event("validate_bet", %{"bet_amount" => bet_amount}, socket) do
+  def handle_event("validate_bet", %{"bet_amount" => bet_amount, "balance" => balance}, socket) do
     bet_amount = bet_amount |> parse_amount()
 
     tip =
       cond do
         bet_amount == 0.000 -> "⚠️ Enter a valid bet amount."
         bet_amount < @min_bet -> "💡 Bet must be at least #{@min_bet} ETH."
-        bet_amount > socket.assigns.wallet_balance -> "💸 Not enough ETH balance."
+        bet_amount > balance -> "💸 Not enough ETH balance."
         true -> nil
       end
 
@@ -118,14 +121,12 @@ defmodule CoinflipsWeb.Live.Index do
      |> assign(wallet_connected: true, wallet_address: address, wallet_balance: balance)}
   end
 
-  def handle_event("create_game", _params, socket) do
-    bet_amount = socket.assigns.bet_amount
-
+  def handle_event("create_game", %{"bet_amount" => bet_amount, "balance" => balance}, socket) do
     cond do
       bet_amount < @min_bet ->
         {:noreply, add_tip(socket, "⚠️ Minimum bet is #{@min_bet} ETH.")}
 
-      bet_amount > socket.assigns.wallet_balance ->
+      bet_amount > balance ->
         {:noreply, add_tip(socket, "💸 Insufficient balance to create the game.")}
 
       true ->
@@ -411,11 +412,14 @@ defmodule CoinflipsWeb.Live.Index do
 
   @impl true
   def handle_event("filter_games", params, socket) do
-    filtered_games = Coinflips.Games.filter_games(params)
+    filtered_games = filter_games(params)
 
     {:noreply,
      assign(socket,
        active_games: filtered_games,
+       paginated_games: filtered_games |> paginate_games(1, socket.assigns.games_per_page),
+       total_pages: calculate_total_pages(filtered_games, socket.assigns.games_per_page),
+       current_page: 1,
        filter_min_bet: Map.get(params, "min_bet", nil),
        filter_max_bet: Map.get(params, "max_bet", nil),
        filter_status: Map.get(params, "status", [])
@@ -585,6 +589,7 @@ defmodule CoinflipsWeb.Live.Index do
                 class="bg-gray-700 px-4 py-2 rounded-lg text-white focus:ring focus:ring-neon-green"
                 placeholder={"Enter your wager (Min: #{min_bet()} ETH)"}
               />
+              <input type="hidden" name="balance" value={@wallet_balance} />
               <label class="flex items-center space-x-2">
                 <input type="checkbox" name="private_game" class="h-4 w-4 text-yellow-500" />
                 <span class="text-yellow-400">Private Bet</span>

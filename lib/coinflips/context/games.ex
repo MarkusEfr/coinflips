@@ -23,9 +23,11 @@ defmodule Coinflips.Games do
 
   def parse_amount(nil), do: nil
   def parse_amount(""), do: nil
+  def parse_amount({value, _}), do: parse_amount(value)
 
   def parse_amount(amount) when is_binary(amount) do
     case Decimal.parse(amount) do
+      {value, _} -> value
       {:ok, value} -> value
       :error -> nil
     end
@@ -35,7 +37,7 @@ defmodule Coinflips.Games do
   def parse_amount(amount) when is_integer(amount), do: Decimal.new(amount)
   def parse_amount(_), do: nil
 
-  def filter_games(params) do
+  def filter_games(params \\ %{}) do
     # Transform and extract params
     %{min_bet: min_bet, max_bet: max_bet, status: statuses} = transform_params(params)
 
@@ -48,15 +50,8 @@ defmodule Coinflips.Games do
       Game
       |> where([g], g.bet_amount >= ^min_bet)
       |> where([g], g.bet_amount <= ^max_bet)
+      |> status_filter(statuses)
       |> order_by([g], desc: g.inserted_at)
-
-    # Apply status filtering if statuses are provided
-    query =
-      if Enum.empty?(statuses) do
-        query
-      else
-        status_filter(query, statuses)
-      end
 
     Repo.all(query)
   end
