@@ -12,14 +12,17 @@ defmodule CoinflipsWeb.Handlers.ListenerObserver do
   end
 
   # Clear Tip Message after Timeout
-  def handle_info(:clear_tip, socket) do
+  def handle_info(:clear_tip, tip_id, socket) do
     # Auto-hide after 3 seconds
     Process.send_after(self(), :hide_tip, 5000)
     {:noreply, socket}
   end
 
-  def handle_info(:hide_tip, socket) do
-    {:noreply, assign(socket, tip_list: [])}
+  def handle_info({:hide_tip, tip_id}, socket) do
+    {:noreply,
+     assign(socket,
+       tip_list: Enum.reject(socket.assigns.tip_list, fn tip -> tip.id == tip_id end)
+     )}
   end
 
   # PubSub Event Handlers

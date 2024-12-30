@@ -408,7 +408,7 @@ defmodule CoinflipsWeb.Handlers.EventCommandor do
     updated_tips = [%{id: tip_id, message: message} | socket.assigns.tip_list]
 
     # Auto-remove the tip after a delay without affecting other processes
-    Process.send_after(self(), {:remove_tip, tip_id}, 1750)
+    Process.send_after(self(), {:hide_tip, tip_id}, 1750)
 
     assign(socket, tip_list: updated_tips)
   end
