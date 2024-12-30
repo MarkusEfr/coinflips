@@ -39,7 +39,9 @@ defmodule CoinflipsWeb.Live.Index do
 
   # Helper function to calculate total pages
   defp calculate_total_pages(games, games_per_page) do
-    div(length(games) + games_per_page - 1, games_per_page)
+    total = div(length(games) + games_per_page - 1, games_per_page)
+    # Ensure there is always at least 1 page
+    max(total, 1)
   end
 
   # Paginate the games based on the current page
@@ -456,6 +458,25 @@ defmodule CoinflipsWeb.Live.Index do
      )}
   end
 
+  defp visible_pages(current_page, total_pages, max_visible_pages \\ 5) do
+    # Always include the first and last pages
+    edge_pages = [1, total_pages]
+
+    # Calculate the range of pages around the current page
+    middle_start = max(2, current_page - div(max_visible_pages - 1, 2))
+    middle_end = min(total_pages - 1, current_page + div(max_visible_pages - 1, 2))
+
+    # Create the middle range as a list of integers
+    middle_range = Enum.to_list(middle_start..middle_end)
+
+    # Combine edge and middle pages, removing duplicates and invalid numbers
+    (edge_pages ++ middle_range)
+    |> Enum.uniq()
+    # Ensure pages are valid
+    |> Enum.filter(&(&1 > 0 and &1 <= total_pages))
+    |> Enum.sort()
+  end
+
   defp add_tip(socket, message) do
     tip_id = :erlang.system_time(:millisecond)
 
@@ -690,16 +711,45 @@ defmodule CoinflipsWeb.Live.Index do
             </div>
           </div>
         </div>
-        <div class="flex justify-center mt-4 space-x-2">
-      <button
-        :for={page <- 1..@total_pages}
-        phx-click="change_page"
-        phx-value-page={page}
-        class={"px-3 py-1 rounded-md #{if @current_page == page, do: "bg-yellow-500 text-black", else: "bg-gray-800 text-yellow-300"}"}
-      >
-        {page}
-      </button>
+        <div class="flex justify-center items-center mt-4">
+    <div class="relative w-full max-w-lg h-2 bg-gray-800 rounded-full">
+    <div
+      class="absolute top-0 h-2 bg-neon-blue rounded-full transition-all"
+      style={"width: #{round(@current_page / @total_pages * 100)}%;"}
+    ></div>
     </div>
+    <div class="ml-4 text-sm text-neon-green">
+    Page {@current_page} of {@total_pages}
+    </div>
+    </div>
+    <div class="flex justify-center mt-4 space-x-2">
+    <button
+    :if={@current_page > 1}
+    phx-click="change_page"
+    phx-value-page={@current_page - 1}
+    class="w-10 h-10 flex items-center justify-center bg-gray-800 rounded-full text-neon-green hover:bg-neon-green hover:text-black"
+    >
+    ◀
+    </button>
+    <button
+    :for={page <- visible_pages(@current_page, @total_pages, 5)}
+    phx-click="change_page"
+    phx-value-page={page}
+    class={"w-10 h-10 flex items-center justify-center rounded-full #{if @current_page == page, do: "bg-neon-cyan text-black", else: "bg-gray-800 text-neon-cyan hover:bg-neon-cyan hover:text-black"}"}
+    >
+    {page}
+    </button>
+    <button
+    :if={@current_page < @total_pages}
+    phx-click="change_page"
+    phx-value-page={@current_page + 1}
+    class="w-10 h-10 flex items-center justify-center bg-gray-800 rounded-full text-neon-green hover:bg-neon-green hover:text-black"
+    >
+    ▶
+    </button>
+    </div>
+
+
         <footer class="mt-auto p-4 bg-gray-900 text-center text-gray-400">
           <div class="flex justify-center gap-2">
             <p>🚀 Powered by <span class="text-neon-purple font-bold">ETH</span></p>
