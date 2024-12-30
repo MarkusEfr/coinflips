@@ -2,6 +2,7 @@ defmodule CoinflipsWeb.Live.Index do
   use CoinflipsWeb, :live_view
 
   alias Coinflips.Payouts
+  import Coinflips.Games, only: [parse_amount: 1]
 
   @topic "games"
   @min_bet 0.001
@@ -11,15 +12,53 @@ defmodule CoinflipsWeb.Live.Index do
   def mount(_params, _session, socket) do
     if connected?(socket), do: CoinflipsWeb.Endpoint.subscribe(@topic)
 
+    # Initial pagination settings
     {:ok,
      assign(socket,
        wallet_connected: false,
        wallet_address: nil,
        wallet_balance: 0.0,
        active_games: Coinflips.Games.list_games(),
+       paginated_games: [],
+       current_page: 1,
+       # 5-6 games per page
+       games_per_page: 6,
+       total_pages: calculate_total_pages(Coinflips.Games.list_games(), 6),
        bet_amount: nil,
        tip_list: [],
-       private_game: false
+       private_game: false,
+       show_notifications: false,
+       filter_min_bet: nil,
+       filter_max_bet: nil,
+       filter_status: ["waiting", "ready"]
+     )}
+  end
+
+  # Helper function to calculate total pages
+  defp calculate_total_pages(games, games_per_page) do
+    div(length(games) + games_per_page - 1, games_per_page)
+  end
+
+  # Paginate the games based on the current page
+  defp paginate_games(games, page, games_per_page) do
+    games
+    |> Enum.chunk_every(games_per_page)
+    |> Enum.at(page - 1, [])
+  end
+
+  # Handle pagination events
+  @impl true
+  def handle_event("change_page", %{"page" => page}, socket) do
+    page = String.to_integer(page)
+    games_per_page = socket.assigns.games_per_page
+
+    # Get paginated games for the selected page
+    paginated_games = paginate_games(socket.assigns.active_games, page, games_per_page)
+
+    {:noreply,
+     assign(socket,
+       current_page: page,
+       paginated_games: paginated_games
      )}
   end
 
@@ -47,20 +86,6 @@ defmodule CoinflipsWeb.Live.Index do
     {:noreply, assign(socket, active_games: Coinflips.Games.list_games())}
   end
 
-  def handle_event("start_coin_flip", _params, socket) do
-    {:noreply, push_event(socket, "coin-flip", %{})}
-  end
-
-  # Wallet Connection
-  @impl true
-  def handle_event("wallet_connected", %{"address" => address, "balance" => balance}, socket) do
-    balance = String.to_float(balance)
-
-    {:noreply,
-     add_tip(socket, "🔗 Wallet connected! Ready to play.")
-     |> assign(wallet_connected: true, wallet_address: address, wallet_balance: balance)}
-  end
-
   # Bet Validation
   def handle_event("validate_bet", %{"bet_amount" => bet_amount}, socket) do
     bet_amount = bet_amount |> parse_amount()
@@ -77,6 +102,20 @@ defmodule CoinflipsWeb.Live.Index do
       if tip, do: add_tip(socket, tip), else: socket
 
     {:noreply, assign(socket, bet_amount: bet_amount)}
+  end
+
+  def handle_event("start_coin_flip", _params, socket) do
+    {:noreply, push_event(socket, "coin-flip", %{})}
+  end
+
+  # Wallet Connection
+  @impl true
+  def handle_event("wallet_connected", %{"address" => address, "balance" => balance}, socket) do
+    balance = String.to_float(balance)
+
+    {:noreply,
+     add_tip(socket, "🔗 Wallet connected! Ready to play.")
+     |> assign(wallet_connected: true, wallet_address: address, wallet_balance: balance)}
   end
 
   def handle_event("create_game", _params, socket) do
@@ -360,6 +399,29 @@ defmodule CoinflipsWeb.Live.Index do
     end
   end
 
+  @impl true
+  def handle_event("toggle_notifications", _, socket) do
+    {:noreply, assign(socket, show_notifications: !socket.assigns.show_notifications)}
+  end
+
+  @impl true
+  def handle_event("close_notifications", _, socket) do
+    {:noreply, assign(socket, show_notifications: false)}
+  end
+
+  @impl true
+  def handle_event("filter_games", params, socket) do
+    filtered_games = Coinflips.Games.filter_games(params)
+
+    {:noreply,
+     assign(socket,
+       active_games: filtered_games,
+       filter_min_bet: Map.get(params, "min_bet", nil),
+       filter_max_bet: Map.get(params, "max_bet", nil),
+       filter_status: Map.get(params, "status", [])
+     )}
+  end
+
   defp add_tip(socket, message) do
     tip_id = :erlang.system_time(:millisecond)
 
@@ -367,22 +429,10 @@ defmodule CoinflipsWeb.Live.Index do
     updated_tips = [%{id: tip_id, message: message} | socket.assigns.tip_list]
 
     # Auto-remove the tip after a delay without affecting other processes
-    Process.send_after(self(), {:remove_tip, tip_id}, 3000)
+    Process.send_after(self(), {:remove_tip, tip_id}, 1750)
 
     assign(socket, tip_list: updated_tips)
   end
-
-  defp parse_amount(nil), do: 0.0
-
-  defp parse_amount(amount) when is_binary(amount) do
-    case Float.parse(amount) do
-      {value, ""} -> value
-      _ -> 0.0
-    end
-  end
-
-  defp parse_amount(amount) when is_float(amount), do: amount
-  defp parse_amount(_), do: 0.0
 
   defp min_bet(), do: @min_bet
 
@@ -395,134 +445,134 @@ defmodule CoinflipsWeb.Live.Index do
     <div class="flex min-h-screen bg-gradient-to-b from-black via-gray-950 to-black text-yellow-300 font-mono">
 
     <!-- Sidebar (Left) -->
-    <aside class="w-16 bg-gradient-to-b from-gray-900 to-gray-800 flex flex-col items-center py-6 shadow-lg relative">
-    <nav class="space-y-6">
-    <button class="group flex items-center justify-center w-12 h-12 rounded-full bg-gray-800 hover:bg-yellow-500 transition">
-      <span class="text-white text-xl">🏠</span>
-      <span class="hidden group-hover:block text-sm mt-2 text-yellow-300">Home</span>
-    </button>
-    <button class="group flex items-center justify-center w-12 h-12 rounded-full bg-gray-800 hover:bg-yellow-500 transition">
-      <span class="text-white text-xl">🎮</span>
-      <span class="hidden group-hover:block text-sm mt-2 text-yellow-300">Games</span>
-    </button>
-    <button class="group flex items-center justify-center w-12 h-12 rounded-full bg-gray-800 hover:bg-yellow-500 transition">
-      <span class="text-white text-xl">👤</span>
-      <span class="hidden group-hover:block text-sm mt-2 text-yellow-300">Profile</span>
-    </button>
-    <div class="relative">
-      <button
-        class="group flex items-center justify-center w-12 h-12 rounded-full bg-gray-800 hover:bg-yellow-500 transition"
-        phx-click="toggle_notifications"
-      >
-        <span class="text-white text-xl">🔔</span>
-        <span class="hidden group-hover:block text-sm mt-2 text-yellow-300">Notifications</span>
-        <!-- Badge -->
-        <span
-          :if={@tip_list != []}
-          class="absolute top-1 right-1 bg-red-600 text-white text-xs rounded-full px-1.5 py-0.5 font-bold"
-        >
-          {@tip_list |> length}
-        </span>
-      </button>
-      <!-- Notifications Popup -->
-      <div
-        id="notifications-popup"
-        :if={@tip_list != []}
-        class="absolute top-0 left-14 bg-gray-800 text-yellow-300 px-4 py-2 rounded-md shadow-lg z-50 animate-slide-in"
-      >
-        <div
-          :for={tip <- @tip_list}
-          class="mb-2 text-sm bg-gray-700 px-3 py-2 rounded-md shadow-md"
-        >
-          {tip.message}
-        </div>
-      </div>
-    </div>
-    </nav>
-    </aside>
+      <aside class="w-16 bg-gradient-to-b from-gray-900 to-gray-800 flex flex-col items-center py-6 shadow-lg relative">
+        <nav class="space-y-6">
+          <button class="group flex items-center justify-center w-12 h-12 rounded-full bg-gray-800 hover:bg-yellow-500 transition">
+            <span class="text-white text-xl">🏠</span>
+            <span class="hidden group-hover:block text-sm mt-2 text-yellow-300">Home</span>
+          </button>
+          <button class="group flex items-center justify-center w-12 h-12 rounded-full bg-gray-800 hover:bg-yellow-500 transition">
+            <span class="text-white text-xl">🎮</span>
+            <span class="hidden group-hover:block text-sm mt-2 text-yellow-300">Games</span>
+          </button>
+          <button class="group flex items-center justify-center w-12 h-12 rounded-full bg-gray-800 hover:bg-yellow-500 transition">
+            <span class="text-white text-xl">👤</span>
+            <span class="hidden group-hover:block text-sm mt-2 text-yellow-300">Profile</span>
+          </button>
+          <div class="relative">
+            <button
+              class="group flex items-center justify-center w-12 h-12 rounded-full bg-gray-800 hover:bg-yellow-500 transition"
+              phx-click="toggle_notifications"
+            >
+              <span class="text-white text-xl">🔔</span>
+              <span class="hidden group-hover:block text-sm mt-2 text-yellow-300">Notifications</span>
+              <!-- Badge -->
+              <span
+                :if={@tip_list != []}
+                class="absolute top-1 right-1 bg-red-600 text-white text-xs rounded-full px-1.5 py-0.5 font-bold"
+              >
+                {@tip_list |> length}
+              </span>
+            </button>
+            <!-- Notifications Popup -->
+            <div
+              :if={@tip_list != []}
+              id="notifications-popup"
+              class="absolute top-0 left-14 bg-gray-800 text-yellow-300 px-4 py-2 rounded-md shadow-lg z-50 animate-slide-in"
+            >
+              <div
+                :for={tip <- @tip_list}
+                class="mb-2 text-sm bg-gray-700 px-3 py-2 rounded-md shadow-md"
+              >
+                {tip.message}
+              </div>
+            </div>
+          </div>
+        </nav>
+      </aside>
 
-
-
-      <!-- Main Content -->
+    <!-- Main Content -->
       <div class="flex-grow flex flex-col">
         <!-- Header -->
         <header class="flex justify-between items-center px-6 py-4">
-    <h1>🎲 Coinflips Panel</h1>
-    <div class="flex items-center space-x-4">
-    <div class="flex items-center bg-gray-700 px-4 py-2 rounded-lg">
-      <p class="text-yellow-400 truncate">🔑 {@wallet_address || "Not Connected"}</p>
-      <p class="ml-4 text-neon-green font-bold">{@wallet_balance || "0.0"} ETH</p>
-    </div>
-    <button
-      id="wallet-connect"
-      phx-hook="WalletConnect"
-      disabled={@wallet_connected}
-      class="font-bold"
-    >
-      {if @wallet_connected, do: "🛑 Wallet Connected", else: "🔗 Connect Wallet"}
-    </button>
-    </div>
-    </header>
+          <h1>🎲 Coinflips Panel</h1>
+          <div class="flex items-center space-x-4">
+            <div class="flex items-center bg-gray-700 px-4 py-2 rounded-lg">
+              <p class="text-yellow-400 truncate">🔑 {@wallet_address || "Not Connected"}</p>
+              <p class="ml-4 text-neon-green font-bold">{@wallet_balance || "0.0"} ETH</p>
+            </div>
+            <button
+              id="wallet-connect"
+              phx-hook="WalletConnect"
+              disabled={@wallet_connected}
+              class="font-bold"
+            >
+              {if @wallet_connected, do: "🛑 Wallet Connected", else: "🔗 Connect Wallet"}
+            </button>
+          </div>
+        </header>
 
-
-        <!-- Filters and Game Creation -->
-        <div id="game-actions" phx-hook="GameActions" class="flex flex-wrap px-6 py-4 bg-gradient-to-b from-gray-900 to-gray-800 border-b border-yellow-500">
+    <!-- Filters and Game Creation -->
+        <div
+          id="game-actions"
+          phx-hook="GameActions"
+          class="flex flex-wrap px-6 py-4 bg-gradient-to-b from-gray-900 to-gray-800 border-b border-yellow-500"
+        >
           <!-- Filters -->
           <div class="flex space-x-4">
-            <div>
-              <label class="block text-sm text-yellow-400">💰 Min Bet</label>
-              <input
-                type="number"
-                name="min_bet"
-                class="bg-gray-700 px-4 py-2 rounded-lg text-white focus:ring focus:ring-yellow-500"
-                placeholder="e.g., 0.001"
-              />
-            </div>
-            <div>
-              <label class="block text-sm text-yellow-400">💎 Max Bet</label>
-              <input
-                type="number"
-                name="max_bet"
-                class="bg-gray-700 px-4 py-2 rounded-lg text-white focus:ring focus:ring-yellow-500"
-                placeholder="e.g., 0.01"
-              />
-            </div>
-            <div>
-              <label class="block text-sm text-yellow-400">📊 Status</label>
-              <select
-                name="status"
-                class="bg-gray-700 px-4 py-2 rounded-lg text-white focus:ring focus:ring-yellow-500"
-              >
-                <option value="">All</option>
-                <option value="waiting">Waiting</option>
-                <option value="ready">Ready to Flip</option>
-                <option value="completed">Completed</option>
-              </select>
-            </div>
+          <form phx-change="filter_games" class="flex space-x-4">
+    <div>
+    <label class="block text-sm text-yellow-400">💰 Min Bet</label>
+    <input
+      type="number"
+      name="min_bet"
+      value={@filter_min_bet}
+      class="bg-gray-700 px-4 py-2 rounded-lg text-white focus:ring focus:ring-yellow-500"
+      placeholder="e.g., 0.001"
+    />
+    </div>
+    <div>
+    <label class="block text-sm text-yellow-400">💎 Max Bet</label>
+    <input
+      type="number"
+      name="max_bet"
+      value={@filter_max_bet}
+      class="bg-gray-700 px-4 py-2 rounded-lg text-white focus:ring focus:ring-yellow-500"
+      placeholder="e.g., 0.01"
+    />
+    </div>
+    <div>
+    <label class="block text-xs font-medium text-yellow-400 mb-1">📊 Status</label>
+    <select
+      name="status[]"
+      multiple
+      class="bg-gray-800 text-yellow-300 border border-gray-700 focus:ring focus:ring-yellow-500 rounded-md px-2 py-1 text-sm w-full shadow-sm"
+    >
+      <option value="waiting" selected={Enum.member?(@filter_status, "waiting")}>🎯 Waiting</option>
+      <option value="ready" selected={Enum.member?(@filter_status, "ready")}>⚔️ Ready</option>
+      <option value="completed" selected={Enum.member?(@filter_status, "completed")}>🏆 Completed</option>
+    </select>
+    </div>
+    </form>
+
           </div>
 
           <div
-          id="coin-container"
-          class="hidden fixed inset-0 flex flex-col items-center justify-center bg-black bg-opacity-75 z-50"
+            id="coin-container"
+            class="hidden fixed inset-0 flex flex-col items-center justify-center bg-black bg-opacity-75 z-50"
           >
-          <div
-          id="coin"
-          class="coin w-48 h-48 bg-gray-800 text-white text-4xl font-extrabold flex items-center justify-center rounded-full shadow-lg"
-          >
-          <!-- Result will appear here -->
-          </div>
-          <p
-          id="winner-address"
-          class="hidden text-neon-green text-lg font-bold mt-4 text-center"
-          >
-          <!-- Winner address will appear here -->
-          </p>
-          <p
-          id="treasure"
-          class="hidden text-yellow-400 text-lg font-bold mt-2 text-center"
-          >
-          <!-- Treasure message will appear here -->
-          </p>
+            <div
+              id="coin"
+              class="coin w-48 h-48 bg-gray-800 text-white text-4xl font-extrabold flex items-center justify-center rounded-full shadow-lg"
+            >
+              <!-- Result will appear here -->
+            </div>
+            <p id="winner-address" class="hidden text-neon-green text-lg font-bold mt-4 text-center">
+              <!-- Winner address will appear here -->
+            </p>
+            <p id="treasure" class="hidden text-yellow-400 text-lg font-bold mt-2 text-center">
+              <!-- Treasure message will appear here -->
+            </p>
           </div>
           <!-- Game Creation -->
           <div class="ml-auto">
@@ -539,77 +589,86 @@ defmodule CoinflipsWeb.Live.Index do
                 <input type="checkbox" name="private_game" class="h-4 w-4 text-yellow-500" />
                 <span class="text-yellow-400">Private Bet</span>
               </label>
-              <button
-                class="flex items-center space-x-1 bg-gradient-to-r from-yellow-500 to-red-500 px-3 py-2 rounded-md text-black font-bold hover:scale-105 transition-transform"
-                >
+              <button class="flex items-center space-x-1 bg-gradient-to-r from-yellow-500 to-red-500 px-3 py-2 rounded-md text-black font-bold hover:scale-105 transition-transform">
                 🎯 <span>Start</span>
-                </button>
+              </button>
             </form>
           </div>
         </div>
 
-        <!-- Active Games -->
-        <div class="flex-grow px-6 py-4"id="active-games" phx-hook="CoinFlip" >
+    <!-- Active Games -->
+        <div class="flex-grow px-6 py-4" id="active-games" phx-hook="CoinFlip">
           <h2 class="text-2xl font-bold text-yellow-400 mb-4">🔥 Active Games</h2>
           <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-          <div
-    :for={game <- @active_games}
-    class="bg-gradient-to-b from-gray-800 via-gray-900 to-gray-800 p-4 rounded-lg shadow-md hover:shadow-lg hover:scale-105 transition-transform"
-    >
-    <p class="text-sm text-yellow-400">🆔 Bet ID: {game.id}</p>
-    <p class="text-sm text-yellow-500">💰 Bet: {game.bet_amount} ETH</p>
-    <p class="text-sm text-neon-green">🎭 Player: {game.player_wallet}</p>
-    <p :if={game.challenger_wallet} class="text-sm text-neon-blue">🥊 Challenger: {game.challenger_wallet}</p>
-    <p class="text-sm text-yellow-400">📅 Created At: {game.inserted_at |> Timex.format!("{0D}-{0M}-{YYYY} {h24}:{m}:{s}")}</p>
-    <p class="text-sm text-yellow-500">📊 Status: {game.status}</p>
+            <div
+              :for={game <- @paginated_games}
+              class="bg-gradient-to-b from-gray-800 via-gray-900 to-gray-800 p-4 rounded-lg shadow-md hover:shadow-lg hover:scale-105 transition-transform"
+            >
+              <p class="text-sm text-yellow-400">🆔 Bet ID: {game.id}</p>
+              <p class="text-sm text-yellow-500">💰 Bet: {game.bet_amount} ETH</p>
+              <p class="text-sm text-neon-green">🎭 Player: {game.player_wallet}</p>
+              <p :if={game.challenger_wallet} class="text-sm text-neon-blue">
+                🥊 Challenger: {game.challenger_wallet}
+              </p>
+              <p class="text-sm text-yellow-400">
+                📅 Created At: {game.inserted_at |> Timex.format!("{0D}-{0M}-{YYYY} {h24}:{m}:{s}")}
+              </p>
+              <p class="text-sm text-yellow-500">📊 Status: {game.status}</p>
 
     <!-- Join Game Button -->
-    <div class="flex justify-end space-x-2 mt-2">
-    <!-- Join Game Button -->
-    <button
-    :if={
-      @wallet_connected and
-      game.result == "pending" and
-      not game.challenger_deposit_confirmed
-    }
-    class="flex items-center justify-center space-x-1 bg-gradient-to-r from-green-500 to-blue-500 px-2 py-1 rounded-full text-white font-bold shadow-md hover:from-blue-500 hover:to-green-500 transition-transform transform hover:scale-110"
-    phx-click="join_game"
-    title="Join this game"
-    phx-value-id={game.id}
-    phx-value-balance={@wallet_balance}
-    >
-    ⚔️ <span class="md:block">Join</span>
-    </button>
+              <div class="flex justify-end space-x-2 mt-2">
+                <!-- Join Game Button -->
+                <button
+                  :if={
+                    @wallet_connected and
+                      game.result == "pending" and
+                      not game.challenger_deposit_confirmed
+                  }
+                  class="flex items-center justify-center space-x-1 bg-gradient-to-r from-green-500 to-blue-500 px-2 py-1 rounded-full text-white font-bold shadow-md hover:from-blue-500 hover:to-green-500 transition-transform transform hover:scale-110"
+                  phx-click="join_game"
+                  title="Join this game"
+                  phx-value-id={game.id}
+                  phx-value-balance={@wallet_balance}
+                >
+                  ⚔️ <span class="md:block">Join</span>
+                </button>
 
     <!-- Flip Coin Button -->
-    <button
-    :if={
-      game.result == "pending" and
-      game.creator_deposit_confirmed and
-      game.challenger_deposit_confirmed and
-      @wallet_address in [game.player_wallet, game.challenger_wallet]
-    }
-    phx-click="trigger_coin_flip"
-    phx-value-id={game.id}
-    id={"flip-coin-#{game.id}"}
-    class="flex items-center justify-center space-x-1 bg-gradient-to-r from-indigo-500 to-purple-500 px-2 py-1 rounded-full text-white font-bold shadow-md hover:from-purple-500 hover:to-indigo-500 transition-transform transform hover:scale-110"
-    title="Flip the coin"
-    >
-    🎲 <span class="md:block">Flip</span>
-    </button>
-    </div>
-
-
-    </div>
-
+                <button
+                  :if={
+                    game.result == "pending" and
+                      game.creator_deposit_confirmed and
+                      game.challenger_deposit_confirmed and
+                      @wallet_address in [game.player_wallet, game.challenger_wallet]
+                  }
+                  phx-click="trigger_coin_flip"
+                  phx-value-id={game.id}
+                  id={"flip-coin-#{game.id}"}
+                  class="flex items-center justify-center space-x-1 bg-gradient-to-r from-indigo-500 to-purple-500 px-2 py-1 rounded-full text-white font-bold shadow-md hover:from-purple-500 hover:to-indigo-500 transition-transform transform hover:scale-110"
+                  title="Flip the coin"
+                >
+                  🎲 <span class="md:block">Flip</span>
+                </button>
+              </div>
+            </div>
           </div>
         </div>
+        <div class="flex justify-center mt-4 space-x-2">
+      <button
+        :for={page <- 1..@total_pages}
+        phx-click="change_page"
+        phx-value-page={page}
+        class={"px-3 py-1 rounded-md #{if @current_page == page, do: "bg-yellow-500 text-black", else: "bg-gray-800 text-yellow-300"}"}
+      >
+        {page}
+      </button>
+    </div>
         <footer class="mt-auto p-4 bg-gray-900 text-center text-gray-400">
-        <div class="flex justify-center gap-2">
-          <p>🚀 Powered by <span class="text-neon-purple font-bold">ETH</span></p>
-          <span>✨ Play Smart. Win Big! 🎲</span>
-        </div>
-      </footer>
+          <div class="flex justify-center gap-2">
+            <p>🚀 Powered by <span class="text-neon-purple font-bold">ETH</span></p>
+            <span>✨ Play Smart. Win Big! 🎲</span>
+          </div>
+        </footer>
       </div>
     </div>
     """

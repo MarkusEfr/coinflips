@@ -78,3 +78,15 @@ header button:hover {
         opacity: 1;
     }
 }
+
+/* Optional: Add subtle hover and focus effects */
+select[name="status"]:hover {
+    background-color: #2d3748;
+    /* Slightly lighter gray for hover effect */
+}
+
+select[name="status"]:focus {
+    outline: none;
+    border-color: #f6e05e;
+    /* Brighter yellow border on focus */
+}
