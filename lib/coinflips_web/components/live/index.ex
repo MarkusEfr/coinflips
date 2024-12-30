@@ -37,20 +37,6 @@ defmodule CoinflipsWeb.Live.Index do
      )}
   end
 
-  # Helper function to calculate total pages
-  defp calculate_total_pages(games, games_per_page) do
-    total = div(length(games) + games_per_page - 1, games_per_page)
-    # Ensure there is always at least 1 page
-    max(total, 1)
-  end
-
-  # Paginate the games based on the current page
-  defp paginate_games(games, page, games_per_page) do
-    games
-    |> Enum.chunk_every(games_per_page)
-    |> Enum.at(page - 1, [])
-  end
-
   # Handle pagination events
   @impl true
   def handle_event("change_page", %{"page" => page}, socket) do
@@ -458,41 +444,6 @@ defmodule CoinflipsWeb.Live.Index do
      )}
   end
 
-  defp visible_pages(current_page, total_pages, max_visible_pages \\ 5) do
-    # Always include the first and last pages
-    edge_pages = [1, total_pages]
-
-    # Calculate the range of pages around the current page
-    middle_start = max(2, current_page - div(max_visible_pages - 1, 2))
-    middle_end = min(total_pages - 1, current_page + div(max_visible_pages - 1, 2))
-
-    # Create the middle range as a list of integers
-    middle_range = Enum.to_list(middle_start..middle_end)
-
-    # Combine edge and middle pages, removing duplicates and invalid numbers
-    (edge_pages ++ middle_range)
-    |> Enum.uniq()
-    # Ensure pages are valid
-    |> Enum.filter(&(&1 > 0 and &1 <= total_pages))
-    |> Enum.sort()
-  end
-
-  defp add_tip(socket, message) do
-    tip_id = :erlang.system_time(:millisecond)
-
-    # Add tip to the tip list
-    updated_tips = [%{id: tip_id, message: message} | socket.assigns.tip_list]
-
-    # Auto-remove the tip after a delay without affecting other processes
-    Process.send_after(self(), {:remove_tip, tip_id}, 1750)
-
-    assign(socket, tip_list: updated_tips)
-  end
-
-  defp min_bet(), do: @min_bet
-
-  defp app_wallet_address(), do: @app_wallet_address
-
   # Render
   @impl true
   def render(assigns) do
@@ -760,6 +711,90 @@ defmodule CoinflipsWeb.Live.Index do
     </div>
     """
   end
+
+  defp render_profile(assigns) do
+    ~H"""
+    <div class="text-yellow-300">
+      <h2 class="text-2xl font-bold mb-4">👤 User Profile</h2>
+      <p>Username: John Doe</p>
+      <p>Wallet Address: <%= @wallet_address || "Not Connected" %></p>
+      <p>Balance: <%= @wallet_balance || "0.0" %> ETH</p>
+    </div>
+    """
+  end
+
+  defp render_dashboard(assigns) do
+    ~H"""
+    <div class="text-yellow-300">
+      <h2 class="text-2xl font-bold mb-4">🎮 Games Dashboard</h2>
+      <!-- Add dashboard-specific content here -->
+      <p>Current Active Games: <%= length(@active_games) %></p>
+    </div>
+    """
+  end
+
+  defp render_history(assigns) do
+    ~H"""
+    <div class="text-yellow-300">
+      <h2 class="text-2xl font-bold mb-4">📜 Game History</h2>
+      <!-- Add history-specific content here -->
+      <ul>
+        <%= for game <- @game_history do %>
+          <li>Game ID: <%= game.id %> | Status: <%= game.status %></li>
+        <% end %>
+      </ul>
+    </div>
+    """
+  end
+
+  # Helper function to calculate total pages
+  defp calculate_total_pages(games, games_per_page) do
+    total = div(length(games) + games_per_page - 1, games_per_page)
+    # Ensure there is always at least 1 page
+    max(total, 1)
+  end
+
+  # Paginate the games based on the current page
+  defp paginate_games(games, page, games_per_page) do
+    games
+    |> Enum.chunk_every(games_per_page)
+    |> Enum.at(page - 1, [])
+  end
+
+  defp visible_pages(current_page, total_pages, max_visible_pages \\ 5) do
+    # Always include the first and last pages
+    edge_pages = [1, total_pages]
+
+    # Calculate the range of pages around the current page
+    middle_start = max(2, current_page - div(max_visible_pages - 1, 2))
+    middle_end = min(total_pages - 1, current_page + div(max_visible_pages - 1, 2))
+
+    # Create the middle range as a list of integers
+    middle_range = Enum.to_list(middle_start..middle_end)
+
+    # Combine edge and middle pages, removing duplicates and invalid numbers
+    (edge_pages ++ middle_range)
+    |> Enum.uniq()
+    # Ensure pages are valid
+    |> Enum.filter(&(&1 > 0 and &1 <= total_pages))
+    |> Enum.sort()
+  end
+
+  defp add_tip(socket, message) do
+    tip_id = :erlang.system_time(:millisecond)
+
+    # Add tip to the tip list
+    updated_tips = [%{id: tip_id, message: message} | socket.assigns.tip_list]
+
+    # Auto-remove the tip after a delay without affecting other processes
+    Process.send_after(self(), {:remove_tip, tip_id}, 1750)
+
+    assign(socket, tip_list: updated_tips)
+  end
+
+  defp min_bet(), do: @min_bet
+
+  defp app_wallet_address(), do: @app_wallet_address
 
   defp status_by_challenger_deposit(%{creator_deposit_confirmed: true}, :challenger),
     do: "⚔️ Ready to Flip"
