@@ -2,7 +2,6 @@ defmodule CoinflipsWeb.Live.Index do
   alias Coinflips.Games
   use CoinflipsWeb, :live_view
 
-  @min_bet 0.001
   @topic "games"
 
   @impl true
@@ -383,25 +382,6 @@ defmodule CoinflipsWeb.Live.Index do
     games
     |> Enum.chunk_every(games_per_page)
     |> Enum.at(page - 1, [])
-  end
-
-  defp visible_pages(current_page, total_pages, max_visible_pages \\ 5) do
-    # Always include the first and last pages
-    edge_pages = [1, total_pages]
-
-    # Calculate the range of pages around the current page
-    middle_start = max(2, current_page - div(max_visible_pages - 1, 2))
-    middle_end = min(total_pages - 1, current_page + div(max_visible_pages - 1, 2))
-
-    # Create the middle range as a list of integers
-    middle_range = Enum.to_list(middle_start..middle_end)
-
-    # Combine edge and middle pages, removing duplicates and invalid numbers
-    (edge_pages ++ middle_range)
-    |> Enum.uniq()
-    # Ensure pages are valid
-    |> Enum.filter(&(&1 > 0 and &1 <= total_pages))
-    |> Enum.sort()
   end
 
   defp min_bet(), do: @min_bet

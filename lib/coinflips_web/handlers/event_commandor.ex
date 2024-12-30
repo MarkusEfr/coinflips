@@ -7,6 +7,7 @@ defmodule CoinflipsWeb.Handlers.EventCommandor do
 
   alias Coinflips.Games
 
+  @min_bet 0.001
   @topic "games"
   @app_wallet_address "0xa1207Ea48191889e931e11415cE13DF5d9654852"
 
