@@ -255,7 +255,23 @@ defmodule CoinflipsWeb.Live.Index do
           </form>
         </div>
       </div>
-
+      <div
+        id="coin-container"
+        class="hidden fixed inset-0 flex flex-col items-center justify-center bg-black bg-opacity-75 z-50"
+      >
+        <div
+          id="coin"
+          class="coin w-48 h-48 bg-gray-800 text-white text-4xl font-extrabold flex items-center justify-center rounded-full shadow-lg"
+        >
+          <!-- Result will appear here -->
+        </div>
+        <p id="winner-address" class="hidden text-neon-green text-lg font-bold mt-4 text-center">
+          <!-- Winner address will appear here -->
+        </p>
+        <p id="treasure" class="hidden text-yellow-400 text-lg font-bold mt-2 text-center">
+          <!-- Treasure message will appear here -->
+        </p>
+      </div>
       <!-- Active Games -->
       <div class="flex-grow px-6 py-4" id="active-games" phx-hook="CoinFlip">
         <h2 class="text-2xl font-bold text-yellow-400 mb-4">🔥 Active Games</h2>
