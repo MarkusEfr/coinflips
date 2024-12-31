@@ -71,11 +71,17 @@ defmodule CoinflipsWeb.Handlers.EventCommandor do
   # Wallet Connection
   @impl true
   def handle_event("wallet_connected", %{"address" => address, "balance" => balance}, socket) do
+    game_history = Games.get_user_game_history(address)
     balance = String.to_float(balance)
 
     {:noreply,
      add_tip(socket, "🔗 Wallet connected! Ready to play.")
-     |> assign(wallet_connected: true, wallet_address: address, wallet_balance: balance)}
+     |> assign(
+       wallet_connected: true,
+       wallet_address: address,
+       wallet_balance: balance,
+       game_history: game_history
+     )}
   end
 
   def handle_event("create_game", %{"bet_amount" => bet_amount, "balance" => balance}, socket) do

@@ -3,6 +3,14 @@ defmodule Coinflips.Games do
   alias Coinflips.Repo
   alias Coinflips.Games.Game
 
+  def get_user_game_history(wallet_address) do
+    from(g in Game,
+      where: g.player_wallet == ^wallet_address or g.challenger_wallet == ^wallet_address
+    )
+    |> order_by(desc: :inserted_at)
+    |> Repo.all()
+  end
+
   def transform_params(params) do
     # Ensure `min_bet` and `max_bet` are parsed and converted to Decimal
     min_bet = parse_amount(Map.get(params, "min_bet", nil))

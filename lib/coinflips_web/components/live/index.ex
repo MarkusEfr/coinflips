@@ -347,14 +347,68 @@ defmodule CoinflipsWeb.Live.Index do
       <h2 class="text-2xl font-bold text-yellow-400 mb-4">👤 User Profile</h2>
       <p>Wallet Address: {@wallet_address || "Not Connected"}</p>
       <p>Balance: {@wallet_balance || "0.0"} ETH</p>
-      <h3 class="mt-6 text-yellow-400">Game History:</h3>
-      <ul>
-        <%= for game <- @game_history do %>
-          <li>Game ID: {game.id} | Status: {game.status}</li>
-        <% end %>
-      </ul>
+
+      <div class="mt-6">
+        <!-- Terminal-Style Game History Report -->
+        <%= render_terminal(assigns) %>
+      </div>
     </div>
     """
+  end
+
+  defp winning_ratio(game_history, wallet_address) do
+    total_games = length(game_history)
+    IO.inspect(total_games, label: "total_games")
+
+    won_games =
+      game_history
+      |> Enum.count(fn game ->
+        (game.result == "Heads" and game.player_wallet == wallet_address) or
+          (game.result == "Tails" and game.challenger_wallet == wallet_address)
+      end)
+
+    if total_games > 0, do: Float.round(won_games / total_games * 100, 2), else: 0.0
+  end
+
+  defp render_terminal(assigns) do
+    ~H"""
+    <div class="bg-black text-green-300 font-mono rounded-lg p-4 shadow-lg">
+      <!-- Report Header -->
+      <div class="border-b border-green-500 pb-2 mb-4">
+        <h2 class="text-lg font-bold">
+        📜 Game History Report</h2>
+        <pre class="text-sm">
+        ┌───────────────────────────────────────────┐
+        │ Total Games Played: {length(@game_history)}               │
+        │ Total ETH Bet: {@game_history |> Enum.reduce(Decimal.new(0), fn game, acc -> Decimal.add(acc, Decimal.new(game.bet_amount)) end)} ETH  │
+        │ Winning Ratio: {winning_ratio(@game_history, @wallet_address)}%                     │
+        │ Most Played Status: {most_played_status(@game_history)}            │
+        └───────────────────────────────────────────┘
+        </pre>
+      </div>
+
+      <!-- Analytics Breakdown -->
+      <div class="overflow-y-auto max-h-96 border border-green-500 rounded p-2 bg-black">
+        <h3 class="text-sm font-bold mb-2">🖥️ Detailed Analytics</h3>
+        <p class="text-sm">Games Waiting: {games_with_status(@game_history, "waiting")}</p>
+        <p class="text-sm">Games Ready: {games_with_status(@game_history, "ready")}</p>
+        <p class="text-sm">Games Completed: {games_with_status(@game_history, "completed")}</p>
+      </div>
+    </div>
+    """
+  end
+
+  defp games_with_status(game_history, status) do
+    game_history
+    |> Enum.filter(fn game -> game.status == status end)
+    |> length()
+  end
+
+  defp most_played_status(game_history) do
+    game_history
+    |> Enum.group_by(& &1.status)
+    |> Enum.max_by(fn {_status, games} -> length(games) end, fn -> {"None", []} end)
+    |> elem(0)
   end
 
   defp render_notifications(assigns) do
