@@ -68,11 +68,18 @@ defmodule CoinflipsWeb.Handlers.EventCommandor do
     {:noreply, push_event(socket, "coin-flip", %{})}
   end
 
+  @impl true
+  def handle_event("group_by", %{"group_by" => group_by}, socket) do
+    grouped_history = Games.group_game_history(socket.assigns.game_history, group_by)
+    {:noreply, assign(socket, grouped_history: grouped_history, group_by: group_by)}
+  end
+
   # Wallet Connection
   @impl true
   def handle_event("wallet_connected", %{"address" => address, "balance" => balance}, socket) do
     game_history = Games.get_user_game_history(address)
     balance = String.to_float(balance)
+    grouped_history = Games.group_game_history(game_history, "day")
 
     {:noreply,
      add_tip(socket, "🔗 Wallet connected! Ready to play.")
@@ -80,7 +87,8 @@ defmodule CoinflipsWeb.Handlers.EventCommandor do
        wallet_connected: true,
        wallet_address: address,
        wallet_balance: balance,
-       game_history: game_history
+       game_history: game_history,
+       grouped_history: grouped_history
      )}
   end
 

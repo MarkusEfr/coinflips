@@ -21,6 +21,10 @@ defmodule CoinflipsWeb.Live.Index do
     default_games =
       Games.filter_games(%{"status" => ["waiting", "ready", "completed"]})
 
+    # Set default grouping criteria
+    default_group_by = "day"
+    # Fetch the game history data
+
     {:ok,
      assign(socket,
        wallet_connected: false,
@@ -39,7 +43,9 @@ defmodule CoinflipsWeb.Live.Index do
        filter_max_bet: nil,
        filter_status: ["waiting", "ready", "completed"],
        selected_section: :home,
-       game_history: []
+       game_history: [],
+       grouped_history: %{},
+       group_by: "day"
      )}
   end
 
@@ -373,34 +379,102 @@ defmodule CoinflipsWeb.Live.Index do
   defp render_terminal(assigns) do
     ~H"""
     <div class="bg-black text-green-300 font-mono rounded-lg p-4 shadow-lg">
-      <!-- Report Header -->
-      <div class="border-b border-green-500 pb-2 mb-4">
-        <h2 class="text-lg font-bold">
-        📜 Game History Report</h2>
-        <pre class="text-sm">
-        ┌───────────────────────────────────────────┐
-        │ Total Games Played: {length(@game_history)}               │
-        │ Total ETH Bet: {@game_history |> Enum.reduce(Decimal.new(0), fn game, acc -> Decimal.add(acc, Decimal.new(game.bet_amount)) end)} ETH  │
-        │ Winning Ratio: {winning_ratio(@game_history, @wallet_address)}%                     │
-        │ Most Played Status: {most_played_status(@game_history)}            │
-        └───────────────────────────────────────────┘
-        </pre>
-      </div>
-
-      <!-- Analytics Breakdown -->
-      <div class="overflow-y-auto max-h-96 border border-green-500 rounded p-2 bg-black">
-        <h3 class="text-sm font-bold mb-2">🖥️ Detailed Analytics</h3>
-        <p class="text-sm">Games Waiting: {games_with_status(@game_history, "waiting")}</p>
-        <p class="text-sm">Games Ready: {games_with_status(@game_history, "ready")}</p>
-        <p class="text-sm">Games Completed: {games_with_status(@game_history, "completed")}</p>
-      </div>
+    <h2 class="text-lg font-bold">📜 Game History Report</h2>
+    <div class="mb-4">
+    <!-- Grouping Selector -->
+    <form phx-change="group_by">
+      <label class="text-sm font-bold mr-2">Group By:</label>
+      <select name="group_by" class="bg-black text-green-300 border border-green-500 rounded px-2 py-1">
+        <option value="day" selected={@group_by == "day"}>Day</option>
+        <option value="status" selected={@group_by == "status"}>Status</option>
+      </select>
+    </form>
     </div>
+    <div class="overflow-y-auto max-h-96 border border-green-500 rounded p-2 bg-black no-scrollbar">
+    <pre class="text-sm">
+    $ fetch_game_history_grouped
+    <%= for {group, games} <- @grouped_history do %>
+    Group: {group}
+    -----
+    <%= for game <- games do %>
+    Game ID: {game.id}
+    Player: {game.player_wallet}
+    Challenger: {game.challenger_wallet || "N/A"}
+    Bet Amount: {game.bet_amount} ETH
+    Status: {derive_game_status(game)}
+    -----
+    <% end %>
+    <% end %>
+    </pre>
+    </div>
+    </div>
+
     """
+  end
+
+  defp total_wins(game_history, wallet_address) do
+    Enum.count(game_history, fn game ->
+      game.result in ["Heads", "Tails"] and game.player_wallet == wallet_address
+    end)
+  end
+
+  defp total_losses(game_history, wallet_address) do
+    Enum.count(game_history, fn game ->
+      game.result in ["Heads", "Tails"] and game.challenger_wallet == wallet_address
+    end)
+  end
+
+  defp total_loss_amount(game_history, wallet_address) do
+    game_history
+    |> Enum.filter(fn game ->
+      game.result in ["Heads", "Tails"] and game.challenger_wallet == wallet_address
+    end)
+    |> Enum.reduce(Decimal.new(0), fn game, acc ->
+      Decimal.add(acc, Decimal.new(game.bet_amount))
+    end)
+  end
+
+  defp total_wins_amount(game_history, wallet_address) do
+    game_history
+    |> Enum.filter(fn game ->
+      game.result in ["Heads", "Tails"] and game.player_wallet == wallet_address
+    end)
+    |> Enum.reduce(Decimal.new(0), fn game, acc ->
+      Decimal.add(acc, Decimal.new(game.bet_amount))
+    end)
+  end
+
+  defp most_lucky_day(game_history, wallet_address) do
+    game_history
+    |> Enum.filter(fn game ->
+      game.result in ["Heads", "Tails"] and game.player_wallet == wallet_address
+    end)
+    |> Enum.group_by(fn game -> Date.to_string(game.inserted_at) end)
+    |> Enum.max_by(fn {_date, games} -> length(games) end, fn -> {"N/A", []} end)
+    |> elem(0)
+  end
+
+  defp derive_game_status(game) do
+    cond do
+      String.starts_with?(game.status, "🏆") and game.result in ["Heads", "Tails"] ->
+        "completed"
+
+      game.status == "⚔️ Ready to Flip" and game.result == "pending" ->
+        "ready"
+
+      game.status == "🎯 Waiting for challenger" and game.result == "pending" ->
+        "waiting"
+
+      true ->
+        "unknown"
+    end
   end
 
   defp games_with_status(game_history, status) do
     game_history
-    |> Enum.filter(fn game -> game.status == status end)
+    |> Enum.filter(fn game ->
+      derive_game_status(game) == status
+    end)
     |> length()
   end
 

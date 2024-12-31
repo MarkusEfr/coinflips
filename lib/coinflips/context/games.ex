@@ -114,4 +114,29 @@ defmodule Coinflips.Games do
   def delete_game(%Game{} = game) do
     Repo.delete(game)
   end
+
+  def group_game_history(game_history, "status") do
+    game_history
+    |> Enum.group_by(&derive_game_status/1)
+  end
+
+  def group_game_history(game_history, _default) do
+    game_history |> Enum.group_by(&Date.to_string(&1.inserted_at))
+  end
+
+  def derive_game_status(game) do
+    cond do
+      String.starts_with?(game.status, "🏆") and game.result in ["Heads", "Tails"] ->
+        "completed"
+
+      game.status == "⚔️ Ready to Flip" and game.result == "pending" ->
+        "ready"
+
+      game.status == "🎯 Waiting for challenger" and game.result == "pending" ->
+        "waiting"
+
+      true ->
+        "unknown"
+    end
+  end
 end
