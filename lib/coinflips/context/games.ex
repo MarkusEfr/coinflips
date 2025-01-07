@@ -118,10 +118,11 @@ defmodule Coinflips.Games do
   def group_game_history(game_history, "status") do
     game_history
     |> Enum.group_by(&derive_game_status/1)
+    |> Enum.reverse()
   end
 
   def group_game_history(game_history, _default) do
-    game_history |> Enum.group_by(&Date.to_string(&1.inserted_at))
+    game_history |> Enum.group_by(&Date.to_string(&1.inserted_at)) |> Enum.reverse()
   end
 
   def derive_game_status(game) do

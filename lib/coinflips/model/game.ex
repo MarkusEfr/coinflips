@@ -3,15 +3,18 @@ defmodule Coinflips.Games.Game do
   import Ecto.Changeset
 
   schema "games" do
-    field :player_wallet, :string
-    field :challenger_wallet, :string
-    field :bet_amount, :decimal
-    field :status, :string
-    field :creator_deposit_confirmed, :boolean, default: false
-    field :challenger_deposit_confirmed, :boolean, default: false
-    field :creator_tx_hash, :string
-    field :challenger_tx_hash, :string
-    field :result, :string
+    field(:player_wallet, :string)
+    field(:challenger_wallet, :string)
+    field(:bet_amount, :decimal)
+    field(:status, :string)
+    field(:creator_deposit_confirmed, :boolean, default: false)
+    field(:challenger_deposit_confirmed, :boolean, default: false)
+    field(:creator_tx_hash, :string)
+    field(:challenger_tx_hash, :string)
+    field(:result, :string)
+
+    # Relationship
+    has_many(:notifications, Coinflips.Notification)
 
     timestamps()
   end

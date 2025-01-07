@@ -35,4 +35,8 @@ coinflips-*.tar
 npm-debug.log
 /assets/node_modules/
 
+# Enviroment variables
 .env
+
+# VS Code settings
+.vscode

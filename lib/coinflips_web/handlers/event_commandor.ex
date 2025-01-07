@@ -5,10 +5,12 @@ defmodule CoinflipsWeb.Handlers.EventCommandor do
 
   use CoinflipsWeb, :live_component
 
-  alias Coinflips.Games
+  import CoinflipsWeb.Endpoint, only: [broadcast: 3]
+  alias Coinflips.{Notifications, Games}
 
   @min_bet 0.001
   @topic "games"
+  @notify_topic "notifications"
   @app_wallet_address "0xa1207Ea48191889e931e11415cE13DF5d9654852"
 
   def handle_event("select_section", %{"section" => section}, socket) do
@@ -80,9 +82,24 @@ defmodule CoinflipsWeb.Handlers.EventCommandor do
     game_history = Games.get_user_game_history(address)
     balance = String.to_float(balance)
     grouped_history = Games.group_game_history(game_history, "day")
+    message = "Ready to play"
+
+    {:ok, notification} =
+      Notifications.create_notification(%{
+        wallet_address: address,
+        title: "🔗 Wallet connected!",
+        message: message
+      })
+
+    notification |> IO.inspect(label: "notifications")
+
+    broadcast(@notify_topic, "update_notifications", %{
+      notification: notification,
+      wallet_address: address
+    })
 
     {:noreply,
-     add_tip(socket, "🔗 Wallet connected! Ready to play.")
+     add_tip(socket, message)
      |> assign(
        wallet_connected: true,
        wallet_address: address,
@@ -115,12 +132,6 @@ defmodule CoinflipsWeb.Handlers.EventCommandor do
           role: "creator"
         }
 
-        CoinflipsWeb.Endpoint.broadcast(
-          @topic,
-          "update_games",
-          {:update_game, new_game, is_new?: true}
-        )
-
         {:noreply,
          socket
          |> assign(bet_amount: nil)
@@ -130,22 +141,33 @@ defmodule CoinflipsWeb.Handlers.EventCommandor do
   end
 
   def handle_event("join_game", %{"id" => id, "balance" => balance}, socket) do
-    %{bet_amount: bet_amount} = _game = Coinflips.Games.get_game!(id)
+    locked_games = Map.get(socket.assigns, :locked_games, %{})
 
-    join_params = %{
-      toAddress: app_wallet_address(),
-      amountInEth: bet_amount |> Decimal.to_string(),
-      game_id: id,
-      role: "challenger"
-    }
-
-    if balance |> Decimal.new() >= bet_amount do
-      {:noreply,
-       socket
-       |> add_tip("💰 Deposit ETH to join the game.")
-       |> push_event("deposit_eth", join_params)}
+    if Map.get(locked_games, id) do
+      {:noreply, add_tip(socket, "⚠️ This game is currently being processed.")}
     else
-      {:noreply, add_tip(socket, "💸 Insufficient balance to join the game.")}
+      # Lock the game
+      CoinflipsWeb.Endpoint.broadcast("games", "lock_game", %{game_id: id})
+
+      game = Coinflips.Games.get_game!(id)
+
+      if Decimal.new(balance) < Decimal.new(game.bet_amount) do
+        # Unlock the game on failure
+        CoinflipsWeb.Endpoint.broadcast("games", "unlock_game", %{game_id: id})
+        {:noreply, add_tip(socket, "💸 Insufficient balance to join the game.")}
+      else
+        join_params = %{
+          toAddress: app_wallet_address(),
+          amountInEth: game.bet_amount |> Decimal.to_string(),
+          game_id: id,
+          role: "challenger"
+        }
+
+        {:noreply,
+         socket
+         |> add_tip("💰 Deposit ETH to join the game.")
+         |> push_event("deposit_eth", join_params)}
+      end
     end
   end
 
@@ -187,12 +209,15 @@ defmodule CoinflipsWeb.Handlers.EventCommandor do
       {:ok, updated_game} = Coinflips.Games.update_game(game, updated_attrs)
 
       # Broadcast the single updated game
-      CoinflipsWeb.Endpoint.broadcast(
+      broadcast(
         @topic,
         "update_games",
         {:update_game, updated_game, is_new?: false}
       )
 
+      # Unlock the game after successful deposit
+      CoinflipsWeb.Endpoint.broadcast("games", "unlock_game", %{game_id: game_id})
+      # Add a tip
       {:noreply, socket |> add_tip("💰 Deposit confirmed for game #{game_id}.")}
     else
       # Handle the case where the game does not exist; create a new game
@@ -211,12 +236,15 @@ defmodule CoinflipsWeb.Handlers.EventCommandor do
       {:ok, new_game} = Coinflips.Games.create_game(new_game_attrs)
 
       # Broadcast the new game
-      CoinflipsWeb.Endpoint.broadcast(
+      broadcast(
         @topic,
         "update_games",
         {:update_game, new_game, is_new?: true}
       )
 
+      # Unlock the game after successful deposit
+      CoinflipsWeb.Endpoint.broadcast("games", "unlock_game", %{game_id: game_id})
+      # Add a tip
       {:noreply, socket |> add_tip("💰 Deposit confirmed for game #{game_id}.")}
     end
   end
@@ -226,6 +254,8 @@ defmodule CoinflipsWeb.Handlers.EventCommandor do
         %{"error" => %{"shortMessage" => short_message}, "game_id" => game_id, "role" => role},
         socket
       ) do
+    CoinflipsWeb.Endpoint.broadcast("games", "unlock_game", %{game_id: game_id})
+
     case role do
       "creator" ->
         Coinflips.Games.update_game(Coinflips.Games.get_game!(game_id), %{
@@ -274,7 +304,7 @@ defmodule CoinflipsWeb.Handlers.EventCommandor do
     # Define threshold percentage (e.g., 5%)
     threshold_percentage = 5
 
-    # CoinflipsWeb.Endpoint.broadcast(@topic, "update_games", {:update_game, updated_game})
+    # broadcast(@topic, "update_games", {:update_game, updated_game})
 
     {
       :noreply,
@@ -383,6 +413,17 @@ defmodule CoinflipsWeb.Handlers.EventCommandor do
   end
 
   @impl true
+  def handle_event("group_notifications", %{"group_by" => group_by}, socket) do
+    grouped_notifications =
+      case group_by do
+        "unread?" -> Notifications.group_notifications_by_status(socket.assigns.notifications)
+        "date" -> Notifications.group_notifications_by_date(socket.assigns.notifications)
+      end
+
+    {:noreply, assign(socket, grouped_notifications: grouped_notifications, group_by: group_by)}
+  end
+
+  @impl true
   def handle_event("toggle_notifications", _, socket) do
     {:noreply, assign(socket, show_notifications: !socket.assigns.show_notifications)}
   end
@@ -406,6 +447,21 @@ defmodule CoinflipsWeb.Handlers.EventCommandor do
        filter_max_bet: Map.get(params, "max_bet", nil),
        filter_status: Map.get(params, "status", [])
      )}
+  end
+
+  def handle_event("mark_as_read", %{"id" => id}, socket) do
+    with {:ok, _} <- Coinflips.Notifications.mark_as_read(id) do
+      broadcast(
+        @notify_topic,
+        "update_notifications",
+        %{
+          wallet_address: socket.assigns.wallet_address,
+          notifications: []
+        }
+      )
+    end
+
+    {:noreply, socket}
   end
 
   # Additional event handlers can be added here
