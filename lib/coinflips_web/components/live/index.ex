@@ -303,7 +303,6 @@ defmodule CoinflipsWeb.Live.Index do
       <span>Locked</span>
     </div>
 
-    <div id={"join-button-#{game.id}"} class="flex justify-end space-x-2 mt-2">
     <!-- If game is locked -->
     <div
     :if={Map.get(@locked_games, "#{game.id}")})}
@@ -324,7 +323,6 @@ defmodule CoinflipsWeb.Live.Index do
     >
     ⚔️ <span class="md:block">Join</span>
     </button>
-    </div>
 
 
     <button
